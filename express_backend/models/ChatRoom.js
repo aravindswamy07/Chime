@@ -243,6 +243,70 @@ class ChatRoom {
     
     return true;
   }
+
+  // Delete a chat room (admin only) - cascades deletion of all related data
+  static async delete(roomId, adminId) {
+    if (!supabase) return { success: false, message: 'Database connection error' };
+    
+    try {
+      console.log(`Attempting to delete room ${roomId} by admin ${adminId}`);
+      
+      // First verify the room exists and user is admin
+      const room = await this.getById(roomId);
+      if (!room) {
+        return { success: false, message: 'Room not found' };
+      }
+      
+      if (room.admin_id !== adminId) {
+        return { success: false, message: 'Only room admin can delete the room' };
+      }
+      
+      // Step 1: Delete all messages in the room
+      const { error: messagesError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('room_id', roomId);
+      
+      if (messagesError) {
+        console.error('Error deleting messages:', messagesError);
+        return { success: false, message: 'Failed to delete room messages' };
+      }
+      
+      console.log(`Deleted messages for room ${roomId}`);
+      
+      // Step 2: Delete all room members
+      const { error: membersError } = await supabase
+        .from('room_members')
+        .delete()
+        .eq('room_id', roomId);
+      
+      if (membersError) {
+        console.error('Error deleting room members:', membersError);
+        return { success: false, message: 'Failed to delete room members' };
+      }
+      
+      console.log(`Deleted room members for room ${roomId}`);
+      
+      // Step 3: Delete the room itself
+      const { error: roomError } = await supabase
+        .from('chat_rooms')
+        .delete()
+        .eq('id', roomId);
+      
+      if (roomError) {
+        console.error('Error deleting room:', roomError);
+        return { success: false, message: 'Failed to delete room' };
+      }
+      
+      console.log(`Successfully deleted room ${roomId}`);
+      
+      return { success: true, message: 'Room deleted successfully' };
+      
+    } catch (error) {
+      console.error('Exception during room deletion:', error);
+      return { success: false, message: 'Server error during deletion' };
+    }
+  }
 }
 
 module.exports = ChatRoom; 

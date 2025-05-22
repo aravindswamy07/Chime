@@ -200,7 +200,7 @@ const chatRoomController = {
       if (room.admin_id === userId) {
         return res.status(400).json({
           success: false,
-          message: 'Admin cannot leave the room. Transfer ownership first or delete the room.'
+          message: 'Admin cannot leave the room. Please delete the room instead if you want to remove it permanently.'
         });
       }
       
@@ -266,6 +266,37 @@ const chatRoomController = {
       });
     } catch (error) {
       console.error('Remove user error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error'
+      });
+    }
+  },
+
+  // Delete a chat room (admin only)
+  async deleteRoom(req, res) {
+    try {
+      const roomId = req.params.id;
+      const adminId = req.user.id; // From auth middleware
+      
+      console.log(`Delete room request: roomId=${roomId}, adminId=${adminId}`);
+      
+      // Delete the room using the model method
+      const result = await ChatRoom.delete(roomId, adminId);
+      
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          message: result.message
+        });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: result.message
+      });
+    } catch (error) {
+      console.error('Delete room error:', error);
       return res.status(500).json({
         success: false,
         message: 'Server error'

@@ -24,4 +24,7 @@ router.post('/:id/leave', chatRoomController.leaveRoom);
 // Remove user from chat room (admin only)
 router.delete('/:roomId/users/:userId', chatRoomController.removeUser);
 
+// Delete a chat room (admin only)
+router.delete('/:id', chatRoomController.deleteRoom);
+
 module.exports = router; 

@@ -28,12 +28,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const maxMembers = document.getElementById('max-members');
   const roomMembersButton = document.getElementById('room-members-button');
   const leaveRoomButton = document.getElementById('leave-room-button');
+  const deleteRoomButton = document.getElementById('delete-room-button');
   const messagesContainer = document.getElementById('messages-container');
   const messageForm = document.getElementById('message-form');
   const messageInput = document.getElementById('message-input');
   const membersModal = document.getElementById('members-modal');
   const closeMembersModalButton = document.getElementById('close-members-modal-button');
   const membersList = document.getElementById('members-list');
+  const deleteRoomModal = document.getElementById('delete-room-modal');
+  const closeDeleteModalButton = document.getElementById('close-delete-modal-button');
+  const confirmDeleteButton = document.getElementById('confirm-delete-button');
+  const cancelDeleteButton = document.getElementById('cancel-delete-button');
+  const deleteRoomNameSpan = document.getElementById('delete-room-name');
 
   // Display username
   usernameDisplay.textContent = user.username;
@@ -56,12 +62,19 @@ document.addEventListener('DOMContentLoaded', () => {
   roomMembersButton.addEventListener('click', openMembersModal);
   closeMembersModalButton.addEventListener('click', closeMembersModal);
   leaveRoomButton.addEventListener('click', leaveRoom);
+  deleteRoomButton.addEventListener('click', openDeleteRoomModal);
+  closeDeleteModalButton.addEventListener('click', closeDeleteRoomModal);
+  confirmDeleteButton.addEventListener('click', confirmDeleteRoom);
+  cancelDeleteButton.addEventListener('click', closeDeleteRoomModal);
   messageForm.addEventListener('submit', sendMessage);
 
   // Event listener for clicking outside the modal to close it
   window.addEventListener('click', (e) => {
     if (e.target === membersModal) {
       closeMembersModal();
+    }
+    if (e.target === deleteRoomModal) {
+      closeDeleteRoomModal();
     }
   });
 
@@ -103,6 +116,13 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Check if user is admin
       isAdmin = roomData.admin_id === user.id;
+      
+      // Show/hide delete button based on admin status
+      if (isAdmin) {
+        deleteRoomButton.classList.remove('hidden');
+      } else {
+        deleteRoomButton.classList.add('hidden');
+      }
       
       // Fetch messages for the first time
       fetchMessages();
@@ -478,6 +498,66 @@ document.addEventListener('DOMContentLoaded', () => {
       
     } catch (error) {
       alert(`Error removing user: ${error.message}`);
+    }
+  }
+
+  // Function to open delete room modal
+  function openDeleteRoomModal() {
+    if (!isAdmin) {
+      alert('Only room admin can delete the room');
+      return;
+    }
+    
+    // Set room name in the modal
+    deleteRoomNameSpan.textContent = roomData?.name || 'this room';
+    
+    deleteRoomModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  // Function to close delete room modal
+  function closeDeleteRoomModal() {
+    deleteRoomModal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  // Function to confirm room deletion
+  async function confirmDeleteRoom() {
+    try {
+      // Show loading state
+      confirmDeleteButton.disabled = true;
+      confirmDeleteButton.textContent = 'Deleting...';
+      
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete room');
+      }
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to delete room');
+      }
+      
+      // Show success message
+      alert('Room deleted successfully');
+      
+      // Redirect to home page
+      window.location.href = 'home.html';
+      
+    } catch (error) {
+      // Reset button state
+      confirmDeleteButton.disabled = false;
+      confirmDeleteButton.textContent = 'Delete Room';
+      
+      // Show error
+      alert(`Error deleting room: ${error.message}`);
     }
   }
 
