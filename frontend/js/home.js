@@ -13,37 +13,47 @@ document.addEventListener('DOMContentLoaded', () => {
   // DOM elements
   const usernameDisplay = document.getElementById('username-display');
   const logoutButton = document.getElementById('logout-button');
-  const createRoomButton = document.getElementById('create-room-button');
+  const roomsContainer = document.getElementById('rooms-container');
   const createRoomModal = document.getElementById('create-room-modal');
-  const closeModalButton = document.getElementById('close-modal-button');
+  const joinRoomModal = document.getElementById('join-room-modal');
+  const createRoomButton = document.getElementById('create-room-button');
+  const joinRoomButton = document.getElementById('join-room-button');
+  const closeCreateModalButton = document.getElementById('close-create-modal-button');
+  const closeJoinModalButton = document.getElementById('close-join-modal-button');
   const createRoomForm = document.getElementById('create-room-form');
-  const roomList = document.getElementById('room-list');
-  const roomSearch = document.getElementById('room-search');
+  const joinRoomForm = document.getElementById('join-room-form');
 
   // Display username
   usernameDisplay.textContent = user.username;
 
-  // Fetch and display rooms
-  fetchRooms();
-
   // Event listeners
   logoutButton.addEventListener('click', logout);
   createRoomButton.addEventListener('click', openCreateRoomModal);
-  closeModalButton.addEventListener('click', closeCreateRoomModal);
+  joinRoomButton.addEventListener('click', openJoinRoomModal);
+  closeCreateModalButton.addEventListener('click', closeCreateRoomModal);
+  closeJoinModalButton.addEventListener('click', closeJoinRoomModal);
   createRoomForm.addEventListener('submit', createRoom);
-  roomSearch.addEventListener('input', filterRooms);
+  joinRoomForm.addEventListener('submit', joinRoomByCode);
 
-  // Event listener for clicking outside the modal to close it
+  // Event listeners for clicking outside modals to close them
   window.addEventListener('click', (e) => {
     if (e.target === createRoomModal) {
       closeCreateRoomModal();
     }
+    if (e.target === joinRoomModal) {
+      closeJoinRoomModal();
+    }
   });
 
-  // Function to fetch rooms from API
+  // Fetch and display rooms
+  fetchRooms();
+
+  // Function to fetch rooms
   async function fetchRooms() {
     try {
-      roomList.innerHTML = `<div class="flex items-center justify-center p-8 text-gray-500">Loading rooms...</div>`;
+      roomsContainer.innerHTML = `<div class="flex items-center justify-center py-12">
+        <div class="text-gray-500">Loading rooms...</div>
+      </div>`;
       
       const response = await fetch('/api/rooms', {
         headers: {
@@ -64,8 +74,9 @@ document.addEventListener('DOMContentLoaded', () => {
       displayRooms(data.data);
       
     } catch (error) {
-      roomList.innerHTML = `<div class="flex items-center justify-center p-8 text-red-500">
-        Error loading rooms: ${error.message}. <button id="retry-fetch" class="ml-2 text-indigo-600 hover:underline">Retry</button>
+      roomsContainer.innerHTML = `<div class="flex flex-col items-center justify-center py-12">
+        <div class="text-red-500 mb-4">Error loading rooms: ${error.message}</div>
+        <button id="retry-fetch" class="text-indigo-600 hover:underline">Retry</button>
       </div>`;
       
       document.getElementById('retry-fetch').addEventListener('click', fetchRooms);
@@ -75,140 +86,192 @@ document.addEventListener('DOMContentLoaded', () => {
   // Function to display rooms
   function displayRooms(rooms) {
     if (!rooms || rooms.length === 0) {
-      roomList.innerHTML = `<div class="flex flex-col items-center justify-center p-8 text-gray-500">
-        <p>No rooms available.</p>
-        <button id="create-first-room" class="mt-2 text-indigo-600 hover:underline">Create your first room</button>
+      roomsContainer.innerHTML = `<div class="text-center py-12">
+        <div class="text-gray-500 mb-4">No rooms available</div>
+        <p class="text-sm text-gray-400">Create a room or ask for a room code to join one!</p>
       </div>`;
-      
-      document.getElementById('create-first-room').addEventListener('click', openCreateRoomModal);
       return;
     }
     
-    // Store the original rooms for filtering
-    roomList.dataset.rooms = JSON.stringify(rooms);
-    
-    // Generate HTML for each room
     const roomsHTML = rooms.map(room => {
-      const isFull = room.member_count >= room.max_members;
-      const badgeClass = isFull ? 'full' : 'available';
-      const badgeText = isFull ? 'Full' : 'Available';
+      const isCreator = room.admin_id === user.id;
+      const memberText = room.current_members ? `${room.current_members}/${room.max_members}` : `0/${room.max_members}`;
       
-      return `<div class="room-item p-4 hover:bg-gray-50" data-room-id="${room.id}">
-        <div class="flex justify-between items-center">
-          <div>
-            <h4 class="text-lg font-medium text-gray-900">${room.name}</h4>
-            <p class="text-sm text-gray-500">${room.description || 'No description'}</p>
+      return `
+        <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
+          <div class="flex justify-between items-start mb-4">
+            <div class="flex-1">
+              <h3 class="text-lg font-semibold text-gray-900 mb-2">${escapeHtml(room.name)}</h3>
+              <p class="text-gray-600 text-sm mb-3">${escapeHtml(room.description || 'No description')}</p>
+              
+              <div class="flex items-center text-sm text-gray-500 space-x-4">
+                <span>👥 ${memberText} members</span>
+                <span>👑 ${escapeHtml(room.users?.username || 'Unknown')}</span>
+              </div>
+            </div>
           </div>
-          <div class="flex items-center">
-            <span class="text-sm text-gray-500 mr-2">${room.member_count}/${room.max_members} members</span>
-            <span class="room-item-badge ${badgeClass}">${badgeText}</span>
+          
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <button class="join-room-btn bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
+                      data-room-id="${room.id}">
+                Enter Room
+              </button>
+              
+              ${isCreator ? `
+                <button class="show-room-code-btn bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
+                        data-room-id="${room.id}">
+                  Show Code
+                </button>
+              ` : ''}
+            </div>
+            
+            <div class="text-xs text-gray-400">
+              Created ${formatDate(room.created_at)}
+            </div>
           </div>
         </div>
-        <div class="flex justify-between items-center mt-2">
-          <span class="text-sm text-gray-500">Created by ${room.users?.username || 'Unknown'}</span>
-          <button class="join-room-button bg-indigo-100 hover:bg-indigo-200 text-indigo-700 text-sm font-medium py-1 px-3 rounded"
-            data-room-id="${room.id}" ${isFull ? 'disabled' : ''}>
-            Join Room
-          </button>
-        </div>
-      </div>`;
+      `;
     }).join('');
     
-    roomList.innerHTML = roomsHTML;
+    roomsContainer.innerHTML = roomsHTML;
     
     // Add event listeners to join buttons
-    document.querySelectorAll('.join-room-button').forEach(button => {
+    document.querySelectorAll('.join-room-btn').forEach(button => {
       button.addEventListener('click', (e) => {
         const roomId = e.target.dataset.roomId;
         joinRoom(roomId);
       });
     });
+    
+    // Add event listeners to show code buttons
+    document.querySelectorAll('.show-room-code-btn').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const roomId = e.target.dataset.roomId;
+        showRoomCode(roomId);
+      });
+    });
   }
 
-  // Function to filter rooms
-  function filterRooms() {
-    const searchTerm = roomSearch.value.toLowerCase();
-    
-    // Get original rooms from dataset
-    const rooms = JSON.parse(roomList.dataset.rooms || '[]');
-    
-    if (!searchTerm) {
-      displayRooms(rooms);
-      return;
+  // Function to show room code
+  async function showRoomCode(roomId) {
+    try {
+      const response = await fetch(`/api/rooms/${roomId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch room details');
+      }
+      
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to fetch room details');
+      }
+      
+      const roomCode = data.data.room_code;
+      
+      if (roomCode) {
+        // Show room code in a nice modal or alert
+        const codeModal = `
+          <div id="room-code-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+            <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div class="text-center">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Room Code</h3>
+                <div class="bg-gray-100 rounded-lg p-6 mb-6">
+                  <div class="text-3xl font-mono font-bold text-indigo-600 tracking-wider">${roomCode}</div>
+                </div>
+                <p class="text-sm text-gray-600 mb-6">Share this code with others to let them join your room</p>
+                <div class="flex space-x-3">
+                  <button id="copy-code-btn" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors">
+                    Copy Code
+                  </button>
+                  <button id="close-code-modal-btn" class="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-400 transition-colors">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', codeModal);
+        
+        // Add event listeners
+        document.getElementById('copy-code-btn').addEventListener('click', () => {
+          navigator.clipboard.writeText(roomCode).then(() => {
+            document.getElementById('copy-code-btn').textContent = 'Copied!';
+            setTimeout(() => {
+              const btn = document.getElementById('copy-code-btn');
+              if (btn) btn.textContent = 'Copy Code';
+            }, 2000);
+          });
+        });
+        
+        document.getElementById('close-code-modal-btn').addEventListener('click', () => {
+          document.getElementById('room-code-modal').remove();
+        });
+      } else {
+        alert('You are not the admin of this room');
+      }
+      
+    } catch (error) {
+      alert(`Error: ${error.message}`);
     }
-    
-    // Filter rooms based on search term
-    const filteredRooms = rooms.filter(room => 
-      room.name.toLowerCase().includes(searchTerm) || 
-      (room.description && room.description.toLowerCase().includes(searchTerm))
-    );
-    
-    displayRooms(filteredRooms);
   }
 
-  // Function to create a room
-  async function createRoom(e) {
+  // Function to join room by room code
+  async function joinRoomByCode(e) {
     e.preventDefault();
     
-    const roomName = document.getElementById('room-name').value;
-    const roomDescription = document.getElementById('room-description').value;
-    const maxMembers = document.getElementById('max-members').value;
+    const roomCode = document.getElementById('room-code-input').value.trim().toUpperCase();
     
-    // Basic validation
-    if (!roomName) {
-      alert('Please enter a room name');
-      return;
-    }
-    
-    if (maxMembers < 1 || maxMembers > 10) {
-      alert('Maximum members must be between 1 and 10');
+    if (!roomCode) {
+      alert('Please enter a room code');
       return;
     }
     
     try {
-      // Show loading state
-      const submitButton = createRoomForm.querySelector('button[type="submit"]');
-      const originalButtonText = submitButton.textContent;
-      submitButton.textContent = 'Creating...';
-      submitButton.disabled = true;
-      
-      // Make API request
-      const response = await fetch('/api/rooms', {
+      const response = await fetch('/api/rooms/join', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          name: roomName,
-          description: roomDescription,
-          maxMembers: parseInt(maxMembers)
-        })
+        body: JSON.stringify({ roomCode })
       });
       
       const data = await response.json();
       
-      // Reset button state
-      submitButton.textContent = originalButtonText;
-      submitButton.disabled = false;
-      
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to create room');
+        throw new Error(data.message || 'Failed to join room');
       }
       
-      // Close modal and reset form
-      closeCreateRoomModal();
-      createRoomForm.reset();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to join room');
+      }
       
-      // Refresh room list
-      fetchRooms();
+      closeJoinRoomModal();
+      
+      // Show success message
+      if (data.alreadyMember) {
+        alert(data.message);
+      } else {
+        alert('Successfully joined the room!');
+      }
+      
+      // Redirect to the room
+      window.location.href = `chatroom.html?id=${data.roomId}`;
       
     } catch (error) {
-      alert(`Error creating room: ${error.message}`);
+      alert(`Error joining room: ${error.message}`);
     }
   }
 
-  // Function to join a room
+  // Function to join room directly (for rooms the user can see)
   async function joinRoom(roomId) {
     try {
       const response = await fetch(`/api/rooms/${roomId}/join`, {
@@ -224,7 +287,11 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.message || 'Failed to join room');
       }
       
-      // Redirect to chat room
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to join room');
+      }
+      
+      // Redirect to the room
       window.location.href = `chatroom.html?id=${roomId}`;
       
     } catch (error) {
@@ -232,16 +299,93 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Function to open create room modal
-  function openCreateRoomModal() {
-    createRoomModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+  // Function to create room
+  async function createRoom(e) {
+    e.preventDefault();
+    
+    const name = document.getElementById('room-name').value.trim();
+    const description = document.getElementById('room-description').value.trim();
+    const maxMembers = parseInt(document.getElementById('max-members').value) || 10;
+    
+    if (!name) {
+      alert('Please enter a room name');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name, description, maxMembers })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to create room');
+      }
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to create room');
+      }
+      
+      closeCreateRoomModal();
+      
+      // Show success message with room code
+      const roomCode = data.data.room_code;
+      alert(`Room created successfully!\n\nYour room code is: ${roomCode}\n\nShare this code with others to let them join your room.`);
+      
+      // Refresh the rooms list
+      fetchRooms();
+      
+    } catch (error) {
+      alert(`Error creating room: ${error.message}`);
+    }
   }
 
-  // Function to close create room modal
+  // Modal functions
+  function openCreateRoomModal() {
+    createRoomModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    // Reset form
+    createRoomForm.reset();
+  }
+
   function closeCreateRoomModal() {
     createRoomModal.classList.add('hidden');
-    document.body.style.overflow = ''; // Re-enable scrolling
+    document.body.style.overflow = '';
+  }
+
+  function openJoinRoomModal() {
+    joinRoomModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    // Reset form
+    joinRoomForm.reset();
+    // Focus on the room code input
+    setTimeout(() => {
+      document.getElementById('room-code-input').focus();
+    }, 100);
+  }
+
+  function closeJoinRoomModal() {
+    joinRoomModal.classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  // Helper function to format date
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
+  }
+
+  // Helper function to escape HTML
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
   }
 
   // Function to handle logout

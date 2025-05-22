@@ -29,37 +29,30 @@
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-semibold text-gray-800">Chat Rooms</h2>
-      <button id="create-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
-        Create Room
-      </button>
+      <div class="flex space-x-3">
+        <button id="join-room-button" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded">
+          Join Room
+        </button>
+        <button id="create-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
+          Create Room
+        </button>
+      </div>
     </div>
 
-    <div class="bg-white rounded-lg shadow overflow-hidden">
-      <div class="border-b border-gray-200 px-6 py-4">
-        <div class="flex justify-between items-center">
-          <h3 class="text-lg font-medium text-gray-700">Available Rooms</h3>
-          <div class="relative">
-            <input type="text" id="room-search" placeholder="Search rooms..." 
-              class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-          </div>
-        </div>
-      </div>
-      
-      <div class="divide-y divide-gray-200" id="room-list">
-        <!-- Room items will be dynamically added here -->
-        <div class="flex items-center justify-center p-8 text-gray-500">
-          Loading rooms...
-        </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="rooms-container">
+      <!-- Room cards will be dynamically added here -->
+      <div class="flex items-center justify-center py-12 col-span-full">
+        <div class="text-gray-500">Loading rooms...</div>
       </div>
     </div>
   </div>
 
   <!-- Create Room Modal -->
-  <div id="create-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+  <div id="create-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
       <div class="flex justify-between items-center mb-4">
         <h3 class="text-xl font-medium text-gray-900">Create New Room</h3>
-        <button id="close-modal-button" class="text-gray-400 hover:text-gray-500">
+        <button id="close-create-modal-button" class="text-gray-400 hover:text-gray-500">
           <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -80,8 +73,8 @@
         </div>
         
         <div>
-          <label for="max-members" class="block text-sm font-medium text-gray-700">Max Members (1-10)</label>
-          <input type="number" id="max-members" name="max-members" min="1" max="10" value="10" required 
+          <label for="max-members" class="block text-sm font-medium text-gray-700">Max Members (1-50)</label>
+          <input type="number" id="max-members" name="max-members" min="1" max="50" value="10" required 
             class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
         </div>
         
@@ -89,6 +82,40 @@
           <button type="submit" 
             class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
             Create Room
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Join Room Modal -->
+  <div id="join-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-medium text-gray-900">Join Room</h3>
+        <button id="close-join-modal-button" class="text-gray-400 hover:text-gray-500">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <form id="join-room-form" class="space-y-4">
+        <div>
+          <label for="room-code-input" class="block text-sm font-medium text-gray-700">Room Code</label>
+          <input type="text" id="room-code-input" name="room-code" required placeholder="Enter 6-character room code"
+            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-center font-mono text-lg tracking-wider uppercase"
+            maxlength="6" minlength="6">
+        </div>
+        
+        <div class="text-sm text-gray-600">
+          <p>Ask the room creator for the 6-character room code to join their room.</p>
+        </div>
+        
+        <div>
+          <button type="submit" 
+            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+            Join Room
           </button>
         </div>
       </form>

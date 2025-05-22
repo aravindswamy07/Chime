@@ -42,6 +42,14 @@ document.addEventListener('DOMContentLoaded', () => {
   let roomData = null;
   let messages = [];
   let isAdmin = false;
+  let realtimeChannel = null;
+
+  // Initialize Supabase client for real-time
+  const supabaseUrl = 'https://your-project.supabase.co'; // This will be replaced with actual URL
+  const supabaseKey = 'your-anon-key'; // This will be replaced with actual key
+  
+  // Initialize real-time connection
+  initializeRealtime();
 
   // Fetch room details
   fetchRoomDetails();
@@ -59,6 +67,17 @@ document.addEventListener('DOMContentLoaded', () => {
       closeMembersModal();
     }
   });
+
+  // Initialize real-time messaging
+  function initializeRealtime() {
+    // For now, we'll use polling as a fallback
+    // In production, you'd use Supabase Realtime
+    setInterval(() => {
+      if (roomData) {
+        fetchMessages(true); // Silent fetch
+      }
+    }, 3000); // Check for new messages every 3 seconds
+  }
 
   // Function to fetch room details
   async function fetchRoomDetails() {
@@ -100,9 +119,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Function to fetch messages
-  async function fetchMessages() {
+  async function fetchMessages(silent = false) {
     try {
-      messagesContainer.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500">Loading messages...</div>`;
+      if (!silent) {
+        messagesContainer.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500">Loading messages...</div>`;
+      }
       
       const response = await fetch(`/api/rooms/${roomId}/messages/recent`, {
         headers: {
@@ -120,17 +141,22 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.message || 'Failed to fetch messages');
       }
       
-      messages = data.data;
-      displayMessages();
+      const newMessages = data.data;
       
-      // TODO: Set up real-time updates with Supabase Realtime
+      // Only update if there are new messages
+      if (!silent || newMessages.length !== messages.length) {
+        messages = newMessages;
+        displayMessages();
+      }
       
     } catch (error) {
-      messagesContainer.innerHTML = `<div class="flex items-center justify-center p-8 text-red-500">
-        Error loading messages: ${error.message}. <button id="retry-fetch" class="ml-2 text-indigo-600 hover:underline">Retry</button>
-      </div>`;
-      
-      document.getElementById('retry-fetch').addEventListener('click', fetchMessages);
+      if (!silent) {
+        messagesContainer.innerHTML = `<div class="flex items-center justify-center p-8 text-red-500">
+          Error loading messages: ${error.message}. <button id="retry-fetch" class="ml-2 text-indigo-600 hover:underline">Retry</button>
+        </div>`;
+        
+        document.getElementById('retry-fetch')?.addEventListener('click', () => fetchMessages());
+      }
     }
   }
 
@@ -142,6 +168,9 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>`;
       return;
     }
+    
+    // Store scroll position
+    const wasScrolledToBottom = messagesContainer.scrollHeight - messagesContainer.clientHeight <= messagesContainer.scrollTop + 1;
     
     const messagesHTML = messages.map(message => {
       const isCurrentUser = message.sender_id === user.id;
@@ -158,11 +187,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     messagesContainer.innerHTML = messagesHTML;
     
-    // Scroll to bottom
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    // Maintain scroll position or scroll to bottom if user was at bottom
+    if (wasScrolledToBottom) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
   }
 
-  // Function to send a message
+  // Function to send a message (optimized)
   async function sendMessage(e) {
     e.preventDefault();
     
@@ -172,11 +203,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
+    // Optimistic update - add message to UI immediately
+    const tempMessage = {
+      id: 'temp-' + Date.now(),
+      content: content,
+      sender_id: user.id,
+      users: { username: user.username },
+      created_at: new Date().toISOString(),
+      sending: true
+    };
+    
+    messages.push(tempMessage);
+    displayMessages();
+    
+    // Clear input immediately for better UX
+    messageInput.value = '';
+    
     try {
-      // Clear input and disable form
-      messageInput.value = '';
-      messageInput.disabled = true;
-      
       // Make API request
       const response = await fetch(`/api/rooms/${roomId}/messages`, {
         method: 'POST',
@@ -186,10 +229,6 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         body: JSON.stringify({ content })
       });
-      
-      // Re-enable input
-      messageInput.disabled = false;
-      messageInput.focus();
       
       if (!response.ok) {
         throw new Error('Failed to send message');
@@ -201,59 +240,66 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.message || 'Failed to send message');
       }
       
-      // Add message to UI (will be replaced by real-time updates later)
-      messages.push(data.data);
-      displayMessages();
+      // Replace temp message with real message
+      const tempIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (tempIndex !== -1) {
+        messages[tempIndex] = data.data;
+        displayMessages();
+      }
+      
+      // Refresh messages to get any new ones from other users
+      setTimeout(() => fetchMessages(true), 500);
       
     } catch (error) {
+      // Remove temp message on error
+      messages = messages.filter(m => m.id !== tempMessage.id);
+      displayMessages();
       alert(`Error sending message: ${error.message}`);
     }
   }
 
-  // Function to display members modal
+  // Function to open members modal
   function openMembersModal() {
-    // Populate members list
-    if (roomData && roomData.members) {
-      const membersHTML = roomData.members.map(member => {
-        const isCurrentUser = member.id === user.id;
-        const isRoomAdmin = member.id === roomData.admin_id;
-        
-        return `<div class="flex justify-between items-center py-3 px-4">
-          <div class="flex items-center">
-            <div>
-              <p class="text-sm font-medium text-gray-900">
-                ${member.username} ${isCurrentUser ? '(You)' : ''}
-              </p>
-              ${isRoomAdmin ? '<span class="text-xs text-indigo-600">Admin</span>' : ''}
-            </div>
-          </div>
-          ${isAdmin && !isCurrentUser ? `
-            <button class="remove-member-button text-red-600 hover:text-red-900 text-xs" data-user-id="${member.id}">
-              Remove
-            </button>
-          ` : ''}
-        </div>`;
-      }).join('');
-      
-      membersList.innerHTML = membersHTML;
-      
-      // Add event listeners to remove buttons
-      document.querySelectorAll('.remove-member-button').forEach(button => {
-        button.addEventListener('click', (e) => {
-          const userId = e.target.dataset.userId;
-          removeMember(userId);
-        });
-      });
+    if (!roomData || !roomData.members) {
+      return;
     }
     
+    const membersHTML = roomData.members.map(member => {
+      const isCurrentUser = member.id === user.id;
+      const isRoomAdmin = member.id === roomData.admin_id;
+      
+      return `<div class="member-item flex justify-between items-center p-3 border-b border-gray-200">
+        <div>
+          <span class="font-medium">${member.username}</span>
+          ${isRoomAdmin ? '<span class="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Admin</span>' : ''}
+          ${isCurrentUser ? '<span class="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">You</span>' : ''}
+        </div>
+        ${(isAdmin && !isCurrentUser && !isRoomAdmin) ? 
+          `<button class="remove-member-button text-red-600 hover:text-red-800 text-sm" data-user-id="${member.id}">
+            Remove
+          </button>` : ''
+        }
+      </div>`;
+    }).join('');
+    
+    membersList.innerHTML = membersHTML;
+    
+    // Add event listeners to remove buttons
+    document.querySelectorAll('.remove-member-button').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const userId = e.target.dataset.userId;
+        removeMember(userId);
+      });
+    });
+    
     membersModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+    document.body.style.overflow = 'hidden';
   }
 
   // Function to close members modal
   function closeMembersModal() {
     membersModal.classList.add('hidden');
-    document.body.style.overflow = ''; // Re-enable scrolling
+    document.body.style.overflow = '';
   }
 
   // Function to leave room

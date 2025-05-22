@@ -24,6 +24,7 @@ const chatRoomController = {
   async getRoomById(req, res) {
     try {
       const roomId = req.params.id;
+      const userId = req.user.id; // From auth middleware
       
       const room = await ChatRoom.getById(roomId);
       if (!room) {
@@ -36,12 +37,23 @@ const chatRoomController = {
       // Get members for the room
       const members = await ChatRoom.getMembers(roomId);
       
+      // Only show room code to admin
+      const roomData = {
+        ...room,
+        members
+      };
+      
+      // Include room code only if user is admin
+      if (room.admin_id === userId) {
+        roomData.room_code = room.room_code;
+      } else {
+        // Remove room code for non-admin users
+        delete roomData.room_code;
+      }
+      
       return res.status(200).json({
         success: true,
-        data: {
-          ...room,
-          members
-        }
+        data: roomData
       });
     } catch (error) {
       console.error('Get room by id error:', error);
@@ -97,8 +109,56 @@ const chatRoomController = {
       });
     }
   },
+
+  // Join room by room code
+  async joinRoomByCode(req, res) {
+    try {
+      const { roomCode } = req.body;
+      const userId = req.user.id; // From auth middleware
+      
+      // Validate input
+      if (!roomCode) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide room code'
+        });
+      }
+      
+      // Join room by code
+      const result = await ChatRoom.joinByRoomCode(roomCode, userId);
+      
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          message: result.message
+        });
+      }
+      
+      // If user was already a member, still return success but with different message
+      if (result.isAlreadyMember) {
+        return res.status(200).json({
+          success: true,
+          message: 'You are already a member of this room',
+          roomId: result.roomId,
+          alreadyMember: true
+        });
+      }
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Successfully joined the room',
+        roomId: result.roomId
+      });
+    } catch (error) {
+      console.error('Join room by code error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error'
+      });
+    }
+  },
   
-  // Join a chat room
+  // Join a chat room (kept for backward compatibility)
   async joinRoom(req, res) {
     try {
       const roomId = req.params.id;

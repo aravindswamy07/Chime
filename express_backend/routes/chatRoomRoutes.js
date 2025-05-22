@@ -11,6 +11,7 @@ router.use(authenticateToken);
 router.get('/', chatRoomController.getAllRooms);
 router.get('/:id', chatRoomController.getRoomById);
 router.post('/', chatRoomController.createRoom);
+router.post('/join', chatRoomController.joinRoomByCode);
 router.post('/:id/join', chatRoomController.joinRoom);
 router.post('/:id/leave', chatRoomController.leaveRoom);
 router.delete('/:roomId/users/:userId', chatRoomController.removeUser);

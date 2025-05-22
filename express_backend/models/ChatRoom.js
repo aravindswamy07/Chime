@@ -2,13 +2,18 @@ const supabase = require('../config/db');
 
 // ChatRoom Model - interacts with Supabase
 class ChatRoom {
-  // Get all chat rooms
+  // Generate a simple room code (6 characters)
+  static generateRoomCode() {
+    return Math.random().toString(36).substr(2, 6).toUpperCase();
+  }
+
+  // Get all chat rooms (without sensitive data like room codes)
   static async getAll() {
     if (!supabase) return [];
     
     const { data, error } = await supabase
       .from('chat_rooms')
-      .select('*, users:admin_id(username)');
+      .select('id, name, description, max_members, created_at, users:admin_id(username)');
     
     if (error) {
       console.error('Error getting chat rooms:', error);
@@ -35,10 +40,30 @@ class ChatRoom {
     
     return data;
   }
+
+  // Get chat room by room code
+  static async getByRoomCode(roomCode) {
+    if (!supabase) return null;
+    
+    const { data, error } = await supabase
+      .from('chat_rooms')
+      .select('*, users:admin_id(username)')
+      .eq('room_code', roomCode.toUpperCase())
+      .single();
+    
+    if (error) {
+      console.error('Error getting chat room by room code:', error);
+      return null;
+    }
+    
+    return data;
+  }
   
   // Create a new chat room
   static async create(roomData) {
     if (!supabase) return null;
+    
+    const roomCode = this.generateRoomCode();
     
     const { data, error } = await supabase
       .from('chat_rooms')
@@ -47,7 +72,8 @@ class ChatRoom {
           name: roomData.name,
           description: roomData.description,
           admin_id: roomData.adminId,
-          max_members: roomData.maxMembers || 10
+          max_members: roomData.maxMembers || 10,
+          room_code: roomCode
         }
       ])
       .select();
@@ -136,6 +162,31 @@ class ChatRoom {
     }
     
     return { success: true, message: 'Successfully joined the room' };
+  }
+  
+  // Join room by room code
+  static async joinByRoomCode(roomCode, userId) {
+    if (!supabase) return { success: false, message: 'Database connection error' };
+    
+    // Find room by code
+    const room = await this.getByRoomCode(roomCode);
+    if (!room) {
+      return { success: false, message: 'Invalid room code' };
+    }
+    
+    // Use existing addMember logic
+    const result = await this.addMember(room.id, userId);
+    
+    if (result.success) {
+      return { 
+        success: true, 
+        message: result.message, 
+        roomId: room.id,
+        isAlreadyMember: result.isAlreadyMember 
+      };
+    }
+    
+    return result;
   }
   
   // Remove member from chat room
