@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chime - Home</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <nav class="bg-white shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-16">
+        <div class="flex">
+          <div class="flex-shrink-0 flex items-center">
+            <h1 class="text-2xl font-bold text-indigo-600">Chime</h1>
+          </div>
+        </div>
+        <div class="flex items-center">
+          <span id="username-display" class="text-gray-700 mr-4"></span>
+          <button id="logout-button" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded">
+            Logout
+          </button>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="flex justify-between items-center mb-6">
+      <h2 class="text-2xl font-semibold text-gray-800">Chat Rooms</h2>
+      <button id="create-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
+        Create Room
+      </button>
+    </div>
+
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <div class="flex justify-between items-center">
+          <h3 class="text-lg font-medium text-gray-700">Available Rooms</h3>
+          <div class="relative">
+            <input type="text" id="room-search" placeholder="Search rooms..." 
+              class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+          </div>
+        </div>
+      </div>
+      
+      <div class="divide-y divide-gray-200" id="room-list">
+        <!-- Room items will be dynamically added here -->
+        <div class="flex items-center justify-center p-8 text-gray-500">
+          Loading rooms...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Room Modal -->
+  <div id="create-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-medium text-gray-900">Create New Room</h3>
+        <button id="close-modal-button" class="text-gray-400 hover:text-gray-500">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <form id="create-room-form" class="space-y-4">
+        <div>
+          <label for="room-name" class="block text-sm font-medium text-gray-700">Room Name</label>
+          <input type="text" id="room-name" name="room-name" required 
+            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+        </div>
+        
+        <div>
+          <label for="room-description" class="block text-sm font-medium text-gray-700">Description (optional)</label>
+          <textarea id="room-description" name="room-description" rows="3" 
+            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+        </div>
+        
+        <div>
+          <label for="max-members" class="block text-sm font-medium text-gray-700">Max Members (1-10)</label>
+          <input type="number" id="max-members" name="max-members" min="1" max="10" value="10" required 
+            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+        </div>
+        
+        <div>
+          <button type="submit" 
+            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+            Create Room
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/home.js"></script>
+</body>
+</html> 

@@ -1,0 +1,98 @@
+/* Custom styles for Chime chat application */
+
+/* Fix for full height layouts */
+html, body {
+  height: 100%;
+}
+
+/* Message bubble styles */
+.message-bubble {
+  max-width: 75%;
+  padding: 0.75rem 1rem;
+  border-radius: 1rem;
+  margin-bottom: 0.5rem;
+  word-break: break-word;
+}
+
+.message-bubble.outgoing {
+  background-color: #4f46e5;
+  color: white;
+  margin-left: auto;
+  border-bottom-right-radius: 0.25rem;
+}
+
+.message-bubble.incoming {
+  background-color: #f3f4f6;
+  color: #111827;
+  margin-right: auto;
+  border-bottom-left-radius: 0.25rem;
+}
+
+.message-meta {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.message-bubble.outgoing .message-meta {
+  color: rgba(255, 255, 255, 0.7);
+  text-align: right;
+}
+
+.message-bubble.incoming .message-meta {
+  color: #6b7280;
+}
+
+/* Room list item styles */
+.room-item {
+  transition: background-color 0.2s;
+}
+
+.room-item:hover {
+  background-color: #f9fafb;
+}
+
+.room-item-badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.room-item-badge.available {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.room-item-badge.full {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+/* Animation for messages and modals */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Custom scrollbar for message container */
+#messages-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+#messages-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+#messages-container::-webkit-scrollbar-thumb {
+  background: #c5c5c5;
+  border-radius: 4px;
+}
+
+#messages-container::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+} 
