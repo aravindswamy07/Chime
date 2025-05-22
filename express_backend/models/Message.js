@@ -24,44 +24,90 @@ class Message {
   static async create(messageData) {
     if (!supabase) return null;
     
-    const { data, error } = await supabase
-      .from('messages')
-      .insert([
-        {
-          room_id: messageData.roomId,
-          sender_id: messageData.senderId,
-          content: messageData.content,
-          created_at: new Date().toISOString()
-        }
-      ])
-      .select();
-    
-    if (error) {
-      console.error('Error creating message:', error);
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert([
+          {
+            room_id: messageData.roomId,
+            sender_id: messageData.senderId,
+            content: messageData.content,
+            created_at: new Date().toISOString()
+          }
+        ])
+        .select('*, users:sender_id(username)')
+        .single();
+      
+      if (error) {
+        console.error('Error creating message:', error);
+        return null;
+      }
+      
+      console.log('Message created in database:', data);
+      return data;
+    } catch (err) {
+      console.error('Exception creating message:', err);
       return null;
     }
-    
-    return data[0];
   }
   
-  // Get recent messages for a room (with pagination)
-  static async getRecentByRoomId(roomId, limit = 50, offset = 0) {
+  // Get recent messages for a room (with proper ordering)
+  static async getRecentByRoomId(roomId, limit = 50) {
     if (!supabase) return [];
     
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*, users:sender_id(username)')
-      .eq('room_id', roomId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-    
-    if (error) {
-      console.error('Error getting recent messages:', error);
+    try {
+      console.log(`Fetching recent messages for room ${roomId}, limit: ${limit}`);
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, users:sender_id(username)')
+        .eq('room_id', roomId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }) // Secondary sort by ID for consistency
+        .limit(limit);
+      
+      if (error) {
+        console.error('Error getting recent messages:', error);
+        return [];
+      }
+      
+      console.log(`Retrieved ${data.length} messages for room ${roomId}`);
+      console.log('Latest message IDs:', data.slice(-3).map(m => m.id));
+      
+      return data || [];
+    } catch (err) {
+      console.error('Exception getting recent messages:', err);
       return [];
     }
+  }
+  
+  // Get messages newer than a specific message ID
+  static async getMessagesAfter(roomId, messageId, limit = 20) {
+    if (!supabase) return [];
     
-    // Return in chronological order
-    return data.reverse();
+    try {
+      console.log(`Fetching messages after ID ${messageId} for room ${roomId}`);
+      
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, users:sender_id(username)')
+        .eq('room_id', roomId)
+        .gt('id', messageId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(limit);
+      
+      if (error) {
+        console.error('Error getting messages after ID:', error);
+        return [];
+      }
+      
+      console.log(`Found ${data.length} new messages after ID ${messageId}`);
+      return data || [];
+    } catch (err) {
+      console.error('Exception getting messages after ID:', err);
+      return [];
+    }
   }
   
   // Subscribe to new messages in a room

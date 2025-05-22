@@ -37,14 +37,23 @@ const messageController = {
   async sendMessage(req, res) {
     try {
       const roomId = req.params.roomId;
-      const senderId = req.user.id; // From auth middleware
+      const userId = req.user.id; // From auth middleware
       const { content } = req.body;
       
+      console.log(`User ${userId} sending message to room ${roomId}: "${content}"`);
+      
       // Validate input
-      if (!content) {
+      if (!content || content.trim().length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'Message content cannot be empty'
+          message: 'Message content is required'
+        });
+      }
+      
+      if (content.length > 1000) {
+        return res.status(400).json({
+          success: false,
+          message: 'Message is too long (max 1000 characters)'
         });
       }
       
@@ -60,16 +69,19 @@ const messageController = {
       // Create message
       const message = await Message.create({
         roomId,
-        senderId,
-        content
+        senderId: userId,
+        content: content.trim()
       });
       
       if (!message) {
+        console.error('Failed to create message in database');
         return res.status(500).json({
           success: false,
           message: 'Failed to send message'
         });
       }
+      
+      console.log(`Message created successfully with ID: ${message.id}`);
       
       return res.status(201).json({
         success: true,
@@ -89,20 +101,13 @@ const messageController = {
   async getRecentMessages(req, res) {
     try {
       const roomId = req.params.roomId;
-      const limit = parseInt(req.query.limit) || 50;
-      const offset = parseInt(req.query.offset) || 0;
+      const userId = req.user.id; // From auth middleware
       
-      // Check if room exists
-      const room = await ChatRoom.getById(roomId);
-      if (!room) {
-        return res.status(404).json({
-          success: false,
-          message: 'Room not found'
-        });
-      }
+      console.log(`Fetching messages for room ${roomId}, user ${userId}`);
       
-      // Get recent messages
-      const messages = await Message.getRecentByRoomId(roomId, limit, offset);
+      const messages = await Message.getRecentByRoomId(roomId, 50); // Get last 50 messages
+      
+      console.log(`Found ${messages.length} messages for room ${roomId}`);
       
       return res.status(200).json({
         success: true,
