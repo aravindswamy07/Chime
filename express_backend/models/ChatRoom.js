@@ -77,12 +77,37 @@ class ChatRoom {
     // Extract user data from the nested structure
     return data.map(item => item.users);
   }
+
+  // Check if user is already a member of the room
+  static async isMember(roomId, userId) {
+    if (!supabase) return false;
+    
+    const { data, error } = await supabase
+      .from('room_members')
+      .select('id')
+      .eq('room_id', roomId)
+      .eq('user_id', userId)
+      .single();
+    
+    if (error) {
+      // If error is "no rows returned", user is not a member
+      return false;
+    }
+    
+    return !!data;
+  }
   
   // Add member to chat room
   static async addMember(roomId, userId) {
     if (!supabase) return false;
     
-    // First check if the room is full
+    // First check if user is already a member
+    const alreadyMember = await this.isMember(roomId, userId);
+    if (alreadyMember) {
+      return { success: true, message: 'You are already a member of this room', isAlreadyMember: true };
+    }
+    
+    // Check if the room exists and is not full
     const room = await this.getById(roomId);
     const members = await this.getMembers(roomId);
     
@@ -110,7 +135,7 @@ class ChatRoom {
       return { success: false, message: 'Failed to add member to room' };
     }
     
-    return { success: true, message: 'Member added to room' };
+    return { success: true, message: 'Successfully joined the room' };
   }
   
   // Remove member from chat room

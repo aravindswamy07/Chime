@@ -122,9 +122,18 @@ const chatRoomController = {
         });
       }
       
+      // If user was already a member, still return success but with different message
+      if (result.isAlreadyMember) {
+        return res.status(200).json({
+          success: true,
+          message: 'You are already a member of this room',
+          alreadyMember: true
+        });
+      }
+      
       return res.status(200).json({
         success: true,
-        message: 'Joined room successfully'
+        message: 'Successfully joined the room'
       });
     } catch (error) {
       console.error('Join room error:', error);
