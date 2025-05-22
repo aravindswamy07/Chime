@@ -41,30 +41,41 @@ class User {
   
   // Create a new user
   static async create(userData) {
-    if (!supabase) return null;
-    
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(userData.password, salt);
-    
-    // Create user in Supabase
-    const { data, error } = await supabase
-      .from('users')
-      .insert([
-        {
-          username: userData.username,
-          email: userData.email,
-          password: hashedPassword
-        }
-      ])
-      .select();
-    
-    if (error) {
-      console.error('Error creating user:', error);
+    if (!supabase) {
+      console.error('Supabase client not initialized - check environment variables');
       return null;
     }
     
-    return data[0];
+    try {
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(userData.password, salt);
+      
+      // Log connection attempt
+      console.log('Attempting to connect to Supabase with URL:', process.env.SUPABASE_URL ? 'URL exists' : 'URL missing');
+      
+      // Create user in Supabase
+      const { data, error } = await supabase
+        .from('users')
+        .insert([
+          {
+            username: userData.username,
+            email: userData.email,
+            password: hashedPassword
+          }
+        ])
+        .select();
+      
+      if (error) {
+        console.error('Detailed error creating user:', error.message, error.details, error.hint);
+        return null;
+      }
+      
+      return data[0];
+    } catch (error) {
+      console.error('Exception in create user:', error.message, error.stack);
+      return null;
+    }
   }
   
   // Verify password
