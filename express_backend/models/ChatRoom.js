@@ -7,20 +7,57 @@ class ChatRoom {
     return Math.random().toString(36).substr(2, 6).toUpperCase();
   }
 
-  // Get all chat rooms (without sensitive data like room codes)
-  static async getAll() {
+  // Get rooms that the user is a member of (instead of all rooms)
+  static async getUserRooms(userId) {
     if (!supabase) return [];
     
     const { data, error } = await supabase
-      .from('chat_rooms')
-      .select('id, name, description, max_members, created_at, users:admin_id(username)');
+      .from('room_members')
+      .select(`
+        chat_rooms:room_id (
+          id,
+          name,
+          description,
+          max_members,
+          created_at,
+          admin_id,
+          users:admin_id(username)
+        )
+      `)
+      .eq('user_id', userId);
     
     if (error) {
-      console.error('Error getting chat rooms:', error);
+      console.error('Error getting user rooms:', error);
       return [];
     }
     
-    return data;
+    // Extract room data and add member count
+    const rooms = data.map(item => item.chat_rooms).filter(room => room !== null);
+    
+    // Add current member count for each room
+    for (let room of rooms) {
+      const memberCount = await this.getMemberCount(room.id);
+      room.current_members = memberCount;
+    }
+    
+    return rooms;
+  }
+
+  // Get member count for a room
+  static async getMemberCount(roomId) {
+    if (!supabase) return 0;
+    
+    const { count, error } = await supabase
+      .from('room_members')
+      .select('*', { count: 'exact', head: true })
+      .eq('room_id', roomId);
+    
+    if (error) {
+      console.error('Error getting member count:', error);
+      return 0;
+    }
+    
+    return count || 0;
   }
   
   // Get chat room by ID
@@ -164,7 +201,7 @@ class ChatRoom {
     return { success: true, message: 'Successfully joined the room' };
   }
   
-  // Join room by room code
+  // Join room by room code (this is the primary way to join rooms now)
   static async joinByRoomCode(roomCode, userId) {
     if (!supabase) return { success: false, message: 'Database connection error' };
     
@@ -182,6 +219,7 @@ class ChatRoom {
         success: true, 
         message: result.message, 
         roomId: room.id,
+        roomName: room.name,
         isAlreadyMember: result.isAlreadyMember 
       };
     }

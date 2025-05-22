@@ -2,17 +2,18 @@ const ChatRoom = require('../models/ChatRoom');
 
 // Controller for chat rooms
 const chatRoomController = {
-  // Get all chat rooms
+  // Get rooms that the user is a member of
   async getAllRooms(req, res) {
     try {
-      const rooms = await ChatRoom.getAll();
+      const userId = req.user.id; // From auth middleware
+      const rooms = await ChatRoom.getUserRooms(userId);
       
       return res.status(200).json({
         success: true,
         data: rooms
       });
     } catch (error) {
-      console.error('Get all rooms error:', error);
+      console.error('Get user rooms error:', error);
       return res.status(500).json({
         success: false,
         message: 'Server error'
@@ -25,6 +26,15 @@ const chatRoomController = {
     try {
       const roomId = req.params.id;
       const userId = req.user.id; // From auth middleware
+      
+      // First check if user is a member of the room
+      const isMember = await ChatRoom.isMember(roomId, userId);
+      if (!isMember) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied. You are not a member of this room.'
+        });
+      }
       
       const room = await ChatRoom.getById(roomId);
       if (!room) {
@@ -99,7 +109,11 @@ const chatRoomController = {
       return res.status(201).json({
         success: true,
         message: 'Room created successfully',
-        data: room
+        data: {
+          ...room,
+          roomId: room.id,
+          roomCode: room.room_code
+        }
       });
     } catch (error) {
       console.error('Create room error:', error);
@@ -140,6 +154,7 @@ const chatRoomController = {
           success: true,
           message: 'You are already a member of this room',
           roomId: result.roomId,
+          roomName: result.roomName,
           alreadyMember: true
         });
       }
@@ -147,7 +162,8 @@ const chatRoomController = {
       return res.status(200).json({
         success: true,
         message: 'Successfully joined the room',
-        roomId: result.roomId
+        roomId: result.roomId,
+        roomName: result.roomName
       });
     } catch (error) {
       console.error('Join room by code error:', error);
@@ -158,50 +174,12 @@ const chatRoomController = {
     }
   },
   
-  // Join a chat room (kept for backward compatibility)
+  // Join a chat room (disabled - users can only join via room code now)
   async joinRoom(req, res) {
-    try {
-      const roomId = req.params.id;
-      const userId = req.user.id; // From auth middleware
-      
-      const room = await ChatRoom.getById(roomId);
-      if (!room) {
-        return res.status(404).json({
-          success: false,
-          message: 'Room not found'
-        });
-      }
-      
-      // Add user to room
-      const result = await ChatRoom.addMember(roomId, userId);
-      
-      if (!result.success) {
-        return res.status(400).json({
-          success: false,
-          message: result.message
-        });
-      }
-      
-      // If user was already a member, still return success but with different message
-      if (result.isAlreadyMember) {
-        return res.status(200).json({
-          success: true,
-          message: 'You are already a member of this room',
-          alreadyMember: true
-        });
-      }
-      
-      return res.status(200).json({
-        success: true,
-        message: 'Successfully joined the room'
-      });
-    } catch (error) {
-      console.error('Join room error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Server error'
-      });
-    }
+    return res.status(403).json({
+      success: false,
+      message: 'Direct room joining is disabled. Please use room code to join.'
+    });
   },
   
   // Leave a chat room

@@ -42,12 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let roomData = null;
   let messages = [];
   let isAdmin = false;
-  let realtimeChannel = null;
+  let lastMessageCount = 0;
 
-  // Initialize Supabase client for real-time
-  const supabaseUrl = 'https://your-project.supabase.co'; // This will be replaced with actual URL
-  const supabaseKey = 'your-anon-key'; // This will be replaced with actual key
-  
   // Initialize real-time connection
   initializeRealtime();
 
@@ -70,13 +66,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize real-time messaging
   function initializeRealtime() {
-    // For now, we'll use polling as a fallback
-    // In production, you'd use Supabase Realtime
+    // Check for new messages every 2 seconds (faster polling)
     setInterval(() => {
       if (roomData) {
         fetchMessages(true); // Silent fetch
       }
-    }, 3000); // Check for new messages every 3 seconds
+    }, 2000);
   }
 
   // Function to fetch room details
@@ -143,10 +138,18 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const newMessages = data.data;
       
-      // Only update if there are new messages
-      if (!silent || newMessages.length !== messages.length) {
+      // Only update if there are new messages or it's the initial load
+      if (!silent || newMessages.length !== lastMessageCount) {
+        const hasNewMessages = newMessages.length > lastMessageCount;
         messages = newMessages;
-        displayMessages();
+        lastMessageCount = newMessages.length;
+        
+        if (hasNewMessages && silent) {
+          // Add only new messages with animation
+          addNewMessages(messages.slice(lastMessageCount - (newMessages.length - lastMessageCount)));
+        } else {
+          displayMessages();
+        }
       }
       
     } catch (error) {
@@ -160,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Function to display messages
+  // Function to display messages (initial load)
   function displayMessages() {
     if (!messages || messages.length === 0) {
       messagesContainer.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500">
@@ -169,31 +172,51 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    // Store scroll position
-    const wasScrolledToBottom = messagesContainer.scrollHeight - messagesContainer.clientHeight <= messagesContainer.scrollTop + 1;
-    
-    const messagesHTML = messages.map(message => {
-      const isCurrentUser = message.sender_id === user.id;
-      const bubbleClass = isCurrentUser ? 'outgoing' : 'incoming';
-      const senderName = isCurrentUser ? 'You' : (message.users?.username || 'Unknown');
-      
-      return `<div class="message-bubble ${bubbleClass} fade-in">
-        <div class="message-content">${escapeHtml(message.content)}</div>
-        <div class="message-meta">
-          ${senderName} • ${formatDate(message.created_at)}
-        </div>
-      </div>`;
-    }).join('');
-    
+    const messagesHTML = messages.map(message => createMessageHTML(message)).join('');
     messagesContainer.innerHTML = messagesHTML;
-    
-    // Maintain scroll position or scroll to bottom if user was at bottom
-    if (wasScrolledToBottom) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    }
+    scrollToBottom();
   }
 
-  // Function to send a message (optimized)
+  // Function to add new messages with animation (for real-time updates)
+  function addNewMessages(newMessages) {
+    newMessages.forEach(message => {
+      const messageElement = document.createElement('div');
+      messageElement.innerHTML = createMessageHTML(message);
+      messageElement.firstChild.style.opacity = '0';
+      messageElement.firstChild.style.transform = 'translateY(20px)';
+      
+      messagesContainer.appendChild(messageElement.firstChild);
+      
+      // Animate in
+      setTimeout(() => {
+        messageElement.firstChild.style.transition = 'all 0.3s ease-out';
+        messageElement.firstChild.style.opacity = '1';
+        messageElement.firstChild.style.transform = 'translateY(0)';
+      }, 10);
+    });
+    
+    scrollToBottom();
+  }
+
+  // Function to create message HTML
+  function createMessageHTML(message) {
+    const isCurrentUser = message.sender_id === user.id;
+    const bubbleClass = isCurrentUser ? 'outgoing' : 'incoming';
+    const senderName = isCurrentUser ? 'You' : (message.users?.username || 'Unknown');
+    const isTemp = message.id && message.id.toString().startsWith('temp-');
+    const statusClass = isTemp ? 'sending' : '';
+    
+    return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
+      <div class="message-content">${escapeHtml(message.content)}</div>
+      <div class="message-meta">
+        ${senderName} • ${formatDate(message.created_at)}
+        ${isCurrentUser && isTemp ? '<span class="sending-indicator">⏳</span>' : ''}
+        ${isCurrentUser && !isTemp ? '<span class="sent-indicator">✓</span>' : ''}
+      </div>
+    </div>`;
+  }
+
+  // Function to send a message (WhatsApp-style instant)
   async function sendMessage(e) {
     e.preventDefault();
     
@@ -203,7 +226,10 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     
-    // Optimistic update - add message to UI immediately
+    // Clear input immediately
+    messageInput.value = '';
+    
+    // Create temporary message for instant UI update
     const tempMessage = {
       id: 'temp-' + Date.now(),
       content: content,
@@ -213,14 +239,30 @@ document.addEventListener('DOMContentLoaded', () => {
       sending: true
     };
     
+    // Add message to messages array and display instantly
     messages.push(tempMessage);
-    displayMessages();
+    lastMessageCount = messages.length;
     
-    // Clear input immediately for better UX
-    messageInput.value = '';
+    // Create and append message element with animation
+    const messageElement = document.createElement('div');
+    messageElement.innerHTML = createMessageHTML(tempMessage);
+    const messageDiv = messageElement.firstChild;
+    messageDiv.style.opacity = '0';
+    messageDiv.style.transform = 'translateY(20px)';
+    
+    messagesContainer.appendChild(messageDiv);
+    
+    // Animate in immediately
+    setTimeout(() => {
+      messageDiv.style.transition = 'all 0.3s ease-out';
+      messageDiv.style.opacity = '1';
+      messageDiv.style.transform = 'translateY(0)';
+    }, 10);
+    
+    scrollToBottom();
     
     try {
-      // Make API request
+      // Send to server
       const response = await fetch(`/api/rooms/${roomId}/messages`, {
         method: 'POST',
         headers: {
@@ -240,22 +282,53 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(data.message || 'Failed to send message');
       }
       
-      // Replace temp message with real message
+      // Update the temporary message with real data
       const tempIndex = messages.findIndex(m => m.id === tempMessage.id);
       if (tempIndex !== -1) {
         messages[tempIndex] = data.data;
-        displayMessages();
+        
+        // Update the DOM element
+        const tempElement = document.querySelector(`[data-message-id="${tempMessage.id}"]`);
+        if (tempElement) {
+          tempElement.innerHTML = createMessageHTML(data.data).replace('<div class="message-bubble', '').replace('</div>', '');
+          tempElement.setAttribute('data-message-id', data.data.id);
+          tempElement.classList.remove('sending');
+        }
       }
       
-      // Refresh messages to get any new ones from other users
-      setTimeout(() => fetchMessages(true), 500);
-      
     } catch (error) {
-      // Remove temp message on error
-      messages = messages.filter(m => m.id !== tempMessage.id);
-      displayMessages();
-      alert(`Error sending message: ${error.message}`);
+      // Remove temp message on error and show error
+      const tempIndex = messages.findIndex(m => m.id === tempMessage.id);
+      if (tempIndex !== -1) {
+        messages.splice(tempIndex, 1);
+        lastMessageCount = messages.length;
+        
+        // Remove from DOM
+        const tempElement = document.querySelector(`[data-message-id="${tempMessage.id}"]`);
+        if (tempElement) {
+          tempElement.style.transition = 'all 0.3s ease-out';
+          tempElement.style.opacity = '0';
+          tempElement.style.transform = 'translateX(-100%)';
+          setTimeout(() => tempElement.remove(), 300);
+        }
+      }
+      
+      // Show error message briefly
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error-message text-red-500 text-center py-2';
+      errorDiv.textContent = `Failed to send: ${error.message}`;
+      messagesContainer.appendChild(errorDiv);
+      
+      setTimeout(() => errorDiv.remove(), 3000);
     }
+  }
+
+  // Function to scroll to bottom smoothly
+  function scrollToBottom() {
+    messagesContainer.scrollTo({
+      top: messagesContainer.scrollHeight,
+      behavior: 'smooth'
+    });
   }
 
   // Function to open members modal

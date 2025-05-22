@@ -1,19 +1,27 @@
 const express = require('express');
+const router = express.Router();
 const chatRoomController = require('../controllers/chatRoomController');
 const { authenticateToken } = require('../middleware/auth');
 
-const router = express.Router();
-
-// All routes are protected
+// All routes require authentication
 router.use(authenticateToken);
 
-// Room routes
+// Get rooms that user is a member of
 router.get('/', chatRoomController.getAllRooms);
-router.get('/:id', chatRoomController.getRoomById);
+
+// Create a new chat room
 router.post('/', chatRoomController.createRoom);
+
+// Join room by room code (primary way to join rooms)
 router.post('/join', chatRoomController.joinRoomByCode);
-router.post('/:id/join', chatRoomController.joinRoom);
+
+// Get specific chat room (only if user is a member)
+router.get('/:id', chatRoomController.getRoomById);
+
+// Leave a chat room
 router.post('/:id/leave', chatRoomController.leaveRoom);
+
+// Remove user from chat room (admin only)
 router.delete('/:roomId/users/:userId', chatRoomController.removeUser);
 
 module.exports = router; 

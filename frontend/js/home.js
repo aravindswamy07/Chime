@@ -48,11 +48,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Fetch and display rooms
   fetchRooms();
 
-  // Function to fetch rooms
+  // Function to fetch rooms (only rooms user is a member of)
   async function fetchRooms() {
     try {
-      roomsContainer.innerHTML = `<div class="flex items-center justify-center py-12">
-        <div class="text-gray-500">Loading rooms...</div>
+      roomsContainer.innerHTML = `<div class="flex items-center justify-center py-12 col-span-full">
+        <div class="text-gray-500">Loading your rooms...</div>
       </div>`;
       
       const response = await fetch('/api/rooms', {
@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
       displayRooms(data.data);
       
     } catch (error) {
-      roomsContainer.innerHTML = `<div class="flex flex-col items-center justify-center py-12">
+      roomsContainer.innerHTML = `<div class="flex flex-col items-center justify-center py-12 col-span-full">
         <div class="text-red-500 mb-4">Error loading rooms: ${error.message}</div>
         <button id="retry-fetch" class="text-indigo-600 hover:underline">Retry</button>
       </div>`;
@@ -83,19 +83,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Function to display rooms
+  // Function to display rooms (only rooms user is a member of)
   function displayRooms(rooms) {
     if (!rooms || rooms.length === 0) {
-      roomsContainer.innerHTML = `<div class="text-center py-12">
-        <div class="text-gray-500 mb-4">No rooms available</div>
-        <p class="text-sm text-gray-400">Create a room or ask for a room code to join one!</p>
+      roomsContainer.innerHTML = `<div class="text-center py-12 col-span-full">
+        <div class="text-gray-500 mb-4">You haven't joined any rooms yet</div>
+        <p class="text-sm text-gray-400 mb-6">Create your own room or join one using a room code!</p>
+        <div class="flex justify-center space-x-4">
+          <button onclick="document.getElementById('join-room-button').click()" 
+                  class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            Join Room
+          </button>
+          <button onclick="document.getElementById('create-room-button').click()" 
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            Create Room
+          </button>
+        </div>
       </div>`;
       return;
     }
     
     const roomsHTML = rooms.map(room => {
       const isCreator = room.admin_id === user.id;
-      const memberText = room.current_members ? `${room.current_members}/${room.max_members}` : `0/${room.max_members}`;
+      const memberText = `${room.current_members}/${room.max_members}`;
       
       return `
         <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
@@ -108,20 +118,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 <span>👥 ${memberText} members</span>
                 <span>👑 ${escapeHtml(room.users?.username || 'Unknown')}</span>
               </div>
+              
+              ${isCreator ? `
+                <div class="mt-3 text-xs text-gray-500">
+                  Room ID: <span class="font-mono font-semibold">${room.id}</span>
+                </div>
+              ` : ''}
             </div>
           </div>
           
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-3">
-              <button class="join-room-btn bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
+              <button class="enter-room-btn bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors"
                       data-room-id="${room.id}">
-                Enter Room
+                Enter Chat
               </button>
               
               ${isCreator ? `
                 <button class="show-room-code-btn bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
                         data-room-id="${room.id}">
-                  Show Code
+                  Share Code
                 </button>
               ` : ''}
             </div>
@@ -136,11 +152,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     roomsContainer.innerHTML = roomsHTML;
     
-    // Add event listeners to join buttons
-    document.querySelectorAll('.join-room-btn').forEach(button => {
+    // Add event listeners to enter room buttons
+    document.querySelectorAll('.enter-room-btn').forEach(button => {
       button.addEventListener('click', (e) => {
         const roomId = e.target.dataset.roomId;
-        joinRoom(roomId);
+        // Directly navigate to chat room since user is already a member
+        window.location.href = `chatroom.html?id=${roomId}`;
       });
     });
     
@@ -153,7 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Function to show room code
+  // Function to show room code and ID
   async function showRoomCode(roomId) {
     try {
       const response = await fetch(`/api/rooms/${roomId}`, {
@@ -173,18 +190,30 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       
       const roomCode = data.data.room_code;
+      const roomName = data.data.name;
       
       if (roomCode) {
-        // Show room code in a nice modal or alert
+        // Show room ID and code in a nice modal
         const codeModal = `
           <div id="room-code-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
             <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
               <div class="text-center">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4">Room Code</h3>
-                <div class="bg-gray-100 rounded-lg p-6 mb-6">
-                  <div class="text-3xl font-mono font-bold text-indigo-600 tracking-wider">${roomCode}</div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Room Details</h3>
+                <div class="text-sm font-medium text-gray-700 mb-2">${escapeHtml(roomName)}</div>
+                
+                <div class="space-y-4 mb-6">
+                  <div class="bg-gray-50 rounded-lg p-4">
+                    <div class="text-sm text-gray-600 mb-1">Room ID</div>
+                    <div class="text-lg font-mono font-bold text-gray-800">${roomId}</div>
+                  </div>
+                  
+                  <div class="bg-indigo-50 rounded-lg p-4">
+                    <div class="text-sm text-indigo-600 mb-1">Room Code</div>
+                    <div class="text-3xl font-mono font-bold text-indigo-600 tracking-wider">${roomCode}</div>
+                  </div>
                 </div>
-                <p class="text-sm text-gray-600 mb-6">Share this code with others to let them join your room</p>
+                
+                <p class="text-sm text-gray-600 mb-6">Share the Room Code with others to let them join your room</p>
                 <div class="flex space-x-3">
                   <button id="copy-code-btn" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors">
                     Copy Code
@@ -256,43 +285,17 @@ document.addEventListener('DOMContentLoaded', () => {
       
       closeJoinRoomModal();
       
-      // Show success message
+      // Show success message with room name
       if (data.alreadyMember) {
-        alert(data.message);
+        alert(`${data.message}\n\nRoom: ${data.roomName}`);
       } else {
-        alert('Successfully joined the room!');
+        alert(`Successfully joined "${data.roomName}"!`);
+        // Refresh the rooms list to show the new room
+        fetchRooms();
       }
       
       // Redirect to the room
       window.location.href = `chatroom.html?id=${data.roomId}`;
-      
-    } catch (error) {
-      alert(`Error joining room: ${error.message}`);
-    }
-  }
-
-  // Function to join room directly (for rooms the user can see)
-  async function joinRoom(roomId) {
-    try {
-      const response = await fetch(`/api/rooms/${roomId}/join`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to join room');
-      }
-      
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to join room');
-      }
-      
-      // Redirect to the room
-      window.location.href = `chatroom.html?id=${roomId}`;
       
     } catch (error) {
       alert(`Error joining room: ${error.message}`);
@@ -334,12 +337,71 @@ document.addEventListener('DOMContentLoaded', () => {
       
       closeCreateRoomModal();
       
-      // Show success message with room code
-      const roomCode = data.data.room_code;
-      alert(`Room created successfully!\n\nYour room code is: ${roomCode}\n\nShare this code with others to let them join your room.`);
+      // Show success message with room ID and code
+      const roomId = data.data.roomId;
+      const roomCode = data.data.roomCode;
       
-      // Refresh the rooms list
-      fetchRooms();
+      const successModal = `
+        <div id="success-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+          <div class="bg-white p-8 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div class="text-center">
+              <div class="text-green-600 text-4xl mb-4">✅</div>
+              <h3 class="text-lg font-semibold text-gray-900 mb-4">Room Created Successfully!</h3>
+              <div class="text-sm font-medium text-gray-700 mb-4">"${escapeHtml(name)}"</div>
+              
+              <div class="space-y-4 mb-6">
+                <div class="bg-gray-50 rounded-lg p-4">
+                  <div class="text-sm text-gray-600 mb-1">Room ID</div>
+                  <div class="text-lg font-mono font-bold text-gray-800">${roomId}</div>
+                </div>
+                
+                <div class="bg-green-50 rounded-lg p-4">
+                  <div class="text-sm text-green-600 mb-1">Room Code</div>
+                  <div class="text-3xl font-mono font-bold text-green-600 tracking-wider">${roomCode}</div>
+                </div>
+              </div>
+              
+              <p class="text-sm text-gray-600 mb-6">Share the Room Code with others to let them join your room</p>
+              <div class="flex space-x-3">
+                <button id="copy-room-code-btn" class="flex-1 bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 transition-colors">
+                  Copy Code
+                </button>
+                <button id="enter-room-btn" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors">
+                  Enter Room
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.insertAdjacentHTML('beforeend', successModal);
+      
+      // Add event listeners
+      document.getElementById('copy-room-code-btn').addEventListener('click', () => {
+        navigator.clipboard.writeText(roomCode).then(() => {
+          document.getElementById('copy-room-code-btn').textContent = 'Copied!';
+          setTimeout(() => {
+            const btn = document.getElementById('copy-room-code-btn');
+            if (btn) btn.textContent = 'Copy Code';
+          }, 2000);
+        });
+      });
+      
+      document.getElementById('enter-room-btn').addEventListener('click', () => {
+        document.getElementById('success-modal').remove();
+        window.location.href = `chatroom.html?id=${roomId}`;
+      });
+      
+      // Auto close after 10 seconds
+      setTimeout(() => {
+        const modal = document.getElementById('success-modal');
+        if (modal) {
+          modal.remove();
+          // Refresh the rooms list
+          fetchRooms();
+        }
+      }, 10000);
       
     } catch (error) {
       alert(`Error creating room: ${error.message}`);
