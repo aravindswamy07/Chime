@@ -139,9 +139,16 @@ window.loadImageViewer = function(imageUrl, imageName) {
   
   console.log(`Loading image: ${imageUrl}`);
   
+  // Reset any previous transformations
+  viewerImage.style.transform = '';
+  viewerImage.style.transformOrigin = 'center center';
+  
   viewerImage.onload = () => {
     console.log('Image loaded successfully');
     showViewerSection('image');
+    
+    // Initialize touch gestures after image loads
+    initializeTouchGestures(viewerImage);
   };
   
   viewerImage.onerror = (error) => {
@@ -151,8 +158,216 @@ window.loadImageViewer = function(imageUrl, imageName) {
   };
   
   viewerImage.src = imageUrl;
-  viewerImage.alt = imageName;
+  viewerImage.alt = imageName || 'Image preview';
+  
+  // Preload image for better performance
+  const preloadImg = new Image();
+  preloadImg.src = imageUrl;
 };
+
+// Touch gesture handler for image viewer
+function initializeTouchGestures(imageElement) {
+  let scale = 1;
+  let posX = 0;
+  let posY = 0;
+  let lastTouchDistance = 0;
+  let lastTouchCenter = { x: 0, y: 0 };
+  let isDragging = false;
+  let lastTouchTime = 0;
+  let touchStartPos = { x: 0, y: 0 };
+  
+  // Touch start handler
+  imageElement.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    
+    const touches = e.touches;
+    const currentTime = new Date().getTime();
+    
+    if (touches.length === 1) {
+      // Single touch - prepare for drag or double tap
+      const touch = touches[0];
+      touchStartPos = { x: touch.clientX, y: touch.clientY };
+      
+      // Check for double tap
+      if (currentTime - lastTouchTime < 300) {
+        handleDoubleTap(touch);
+      }
+      lastTouchTime = currentTime;
+      
+    } else if (touches.length === 2) {
+      // Two fingers - prepare for pinch zoom
+      const touch1 = touches[0];
+      const touch2 = touches[1];
+      
+      lastTouchDistance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      
+      lastTouchCenter = {
+        x: (touch1.clientX + touch2.clientX) / 2,
+        y: (touch1.clientY + touch2.clientY) / 2
+      };
+    }
+  });
+  
+  // Touch move handler
+  imageElement.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    
+    const touches = e.touches;
+    
+    if (touches.length === 1 && scale > 1) {
+      // Single touch drag when zoomed
+      const touch = touches[0];
+      const deltaX = touch.clientX - touchStartPos.x;
+      const deltaY = touch.clientY - touchStartPos.y;
+      
+      posX += deltaX * 0.5;
+      posY += deltaY * 0.5;
+      
+      touchStartPos = { x: touch.clientX, y: touch.clientY };
+      updateImageTransform();
+      
+    } else if (touches.length === 2) {
+      // Two finger pinch zoom
+      const touch1 = touches[0];
+      const touch2 = touches[1];
+      
+      const currentDistance = Math.hypot(
+        touch2.clientX - touch1.clientX,
+        touch2.clientY - touch1.clientY
+      );
+      
+      const currentCenter = {
+        x: (touch1.clientX + touch2.clientX) / 2,
+        y: (touch1.clientY + touch2.clientY) / 2
+      };
+      
+      // Calculate scale change
+      const scaleChange = currentDistance / lastTouchDistance;
+      const newScale = Math.max(0.5, Math.min(scale * scaleChange, 4));
+      
+      // Calculate position adjustment to zoom towards touch center
+      const rect = imageElement.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      const offsetX = currentCenter.x - centerX;
+      const offsetY = currentCenter.y - centerY;
+      
+      posX += offsetX * (scaleChange - 1);
+      posY += offsetY * (scaleChange - 1);
+      
+      scale = newScale;
+      lastTouchDistance = currentDistance;
+      lastTouchCenter = currentCenter;
+      
+      updateImageTransform();
+    }
+  });
+  
+  // Touch end handler
+  imageElement.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    
+    // Reset to center if scale is too small
+    if (scale < 0.8) {
+      resetImageTransform();
+    }
+    
+    // Constrain position if image is dragged too far
+    constrainImagePosition();
+  });
+  
+  // Double tap to zoom
+  function handleDoubleTap(touch) {
+    if (scale === 1) {
+      // Zoom in to 2x
+      scale = 2;
+      const rect = imageElement.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      
+      posX = (centerX - touch.clientX) * scale;
+      posY = (centerY - touch.clientY) * scale;
+    } else {
+      // Reset to original size
+      resetImageTransform();
+    }
+    updateImageTransform();
+  }
+  
+  // Update image transformation
+  function updateImageTransform() {
+    imageElement.style.transform = `translate(${posX}px, ${posY}px) scale(${scale})`;
+    imageElement.style.transition = 'none';
+  }
+  
+  // Reset image to original state
+  function resetImageTransform() {
+    scale = 1;
+    posX = 0;
+    posY = 0;
+    imageElement.style.transform = '';
+    imageElement.style.transition = 'transform 0.3s ease';
+  }
+  
+  // Constrain image position within bounds
+  function constrainImagePosition() {
+    const rect = imageElement.getBoundingClientRect();
+    const containerRect = imageElement.parentElement.getBoundingClientRect();
+    
+    const maxX = Math.max(0, (rect.width * scale - containerRect.width) / 2);
+    const maxY = Math.max(0, (rect.height * scale - containerRect.height) / 2);
+    
+    posX = Math.max(-maxX, Math.min(maxX, posX));
+    posY = Math.max(-maxY, Math.min(maxY, posY));
+    
+    imageElement.style.transition = 'transform 0.3s ease';
+    updateImageTransform();
+  }
+  
+  // Add swipe-to-close functionality to the modal background
+  const modal = document.getElementById('file-viewer-modal');
+  let swipeStartY = 0;
+  let swipeStartTime = 0;
+  
+  modal.addEventListener('touchstart', (e) => {
+    if (e.target === modal) {
+      swipeStartY = e.touches[0].clientY;
+      swipeStartTime = new Date().getTime();
+    }
+  });
+  
+  modal.addEventListener('touchmove', (e) => {
+    if (e.target === modal && e.touches.length === 1) {
+      const deltaY = e.touches[0].clientY - swipeStartY;
+      const progress = Math.min(Math.abs(deltaY) / 200, 1);
+      
+      // Fade modal as user swipes
+      if (Math.abs(deltaY) > 50) {
+        modal.style.backgroundColor = `rgba(0, 0, 0, ${0.75 * (1 - progress)})`;
+      }
+    }
+  });
+  
+  modal.addEventListener('touchend', (e) => {
+    if (e.target === modal) {
+      const deltaY = e.changedTouches[0].clientY - swipeStartY;
+      const deltaTime = new Date().getTime() - swipeStartTime;
+      const velocity = Math.abs(deltaY) / deltaTime;
+      
+      // Close modal if swiped down significantly or with high velocity
+      if (Math.abs(deltaY) > 100 || velocity > 0.5) {
+        window.closeFileViewer();
+      } else {
+        // Reset modal background
+        modal.style.backgroundColor = '';
+      }
+    }
+  });
+}
 
 window.loadPdfViewer = function(pdfUrl) {
   const viewerPdf = document.getElementById('viewer-pdf');
@@ -552,28 +767,43 @@ document.addEventListener('DOMContentLoaded', () => {
       const escapedFileUrl = escapeForJavaScript(message.file_url);
       const escapedFileType = escapeForJavaScript(message.file_type);
       
+      // Generate unique ID for accessibility
+      const messageId = `file-message-${message.id}`;
+      const imageId = `image-${message.id}`;
+      
       return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
-        <div class="file-message">
+        <div class="file-message" id="${messageId}">
           ${isImage ? 
             `<div class="image-preview mb-2 relative group">
-              <img src="${hasPreview ? message.preview_url : message.file_url}" 
-                alt="${escapeHtml(message.file_name)}" 
-                class="max-w-xs max-h-64 rounded-lg cursor-pointer transition-transform hover:scale-105 shadow-md" 
-                onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})">
-              ${canView ? `<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-lg transition-all flex items-center justify-center">
-                <svg class="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <img id="${imageId}"
+                data-src="${hasPreview ? message.preview_url : message.file_url}" 
+                alt="${escapeHtml(message.file_name)} - Click to view full size" 
+                class="max-w-xs max-h-64 rounded-lg cursor-pointer transition-transform hover:scale-105 shadow-md loading" 
+                onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})"
+                role="button"
+                tabindex="0"
+                onkeydown="if(event.key==='Enter'||event.key===' '){openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView});}"
+                loading="lazy"
+                style="opacity: 0;">
+              ${canView ? `<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-lg transition-all flex items-center justify-center" aria-hidden="true">
+                <svg class="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 6 16 0z" />
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
+                <span class="sr-only">Click to view full size</span>
               </div>` : ''}
             </div>` :
             `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg transition-all hover:bg-opacity-30 cursor-pointer"
-              onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})">
-              <div class="file-icon">${fileIcon}</div>
+              onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})"
+              role="button"
+              tabindex="0"
+              onkeydown="if(event.key==='Enter'||event.key===' '){openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView});}"
+              aria-label="Open ${escapeHtml(message.file_name)} - ${message.file_category || 'file'}">
+              <div class="file-icon" aria-hidden="true">${fileIcon}</div>
               <div class="flex-1">
                 <div class="file-name font-medium flex items-center">
                   ${escapeHtml(message.file_name)}
-                  ${isEncrypted ? '<span class="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">🔒 Encrypted</span>' : ''}
+                  ${isEncrypted ? '<span class="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded" aria-label="Encrypted file">🔒 Encrypted</span>' : ''}
                 </div>
                 <div class="file-details text-xs opacity-75 flex items-center space-x-2">
                   <span>${window.formatFileSize(message.file_size || 0)}</span>
@@ -582,17 +812,22 @@ document.addEventListener('DOMContentLoaded', () => {
                   ${canView ? '<span>• <span class="text-blue-200">Click to view</span></span>' : ''}
                 </div>
               </div>
-              <div class="flex space-x-2">
-                ${canView ? `<button class="view-btn text-white hover:text-blue-200 transition-colors" title="View file">
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <div class="flex space-x-2" role="group" aria-label="File actions">
+                ${canView ? `<button class="view-btn text-white hover:text-blue-200 transition-colors" 
+                    title="View file" 
+                    aria-label="View ${escapeHtml(message.file_name)}"
+                    onclick="event.stopPropagation(); openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView});">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 6 16 0z" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                   </svg>
                 </button>` : ''}
                 <a href="${message.file_url}" download="${message.file_name}" 
                   class="download-btn text-white hover:text-gray-200 transition-colors" 
-                  onclick="event.stopPropagation()" title="Download file">
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  onclick="event.stopPropagation()" 
+                  title="Download file"
+                  aria-label="Download ${escapeHtml(message.file_name)}">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 5a7 7 0 1014 0H5a7 7 0 1114 0z" />
                   </svg>
                 </a>
@@ -603,8 +838,8 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
         <div class="message-meta">
           ${senderName} • ${formatDate(message.created_at)}
-          ${isCurrentUser && isTemp ? '<span class="sending-indicator">⏳</span>' : ''}
-          ${isCurrentUser && !isTemp ? '<span class="sent-indicator">✓</span>' : ''}
+          ${isCurrentUser && isTemp ? '<span class="sending-indicator" aria-label="Sending">⏳</span>' : ''}
+          ${isCurrentUser && !isTemp ? '<span class="sent-indicator" aria-label="Sent">✓</span>' : ''}
         </div>
       </div>`;
     }
@@ -614,8 +849,8 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="message-content">${escapeHtml(message.content)}</div>
       <div class="message-meta">
         ${senderName} • ${formatDate(message.created_at)}
-        ${isCurrentUser && isTemp ? '<span class="sending-indicator">⏳</span>' : ''}
-        ${isCurrentUser && !isTemp ? '<span class="sent-indicator">✓</span>' : ''}
+        ${isCurrentUser && isTemp ? '<span class="sending-indicator" aria-label="Sending">⏳</span>' : ''}
+        ${isCurrentUser && !isTemp ? '<span class="sent-indicator" aria-label="Sent">✓</span>' : ''}
       </div>
     </div>`;
   }
@@ -1022,7 +1257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.value = '';
   }
 
-  // Upload file
+  // Upload file with mobile optimization
   async function uploadFile() {
     if (!selectedFile) {
       alert('No file selected');
@@ -1031,36 +1266,84 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const caption = fileCaptionInput.value.trim();
     const encrypt = encryptFileCheckbox.checked;
-    const fileName = selectedFile.name; // Store filename before clearing selectedFile
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    if (caption) {
-      formData.append('caption', caption);
-    }
-    if (encrypt) {
-      formData.append('encrypt', 'true');
-    }
-
-    // Show loading state
+    const originalFileName = selectedFile.name;
+    
+    // Show loading state with progress
     const originalText = uploadFileButton.textContent;
     uploadFileButton.disabled = true;
-    uploadFileButton.textContent = 'Uploading...';
+    uploadFileButton.textContent = 'Optimizing...';
 
     try {
-      const response = await fetch(`/api/rooms/${roomId}/upload`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to upload file');
+      // Optimize image for mobile if applicable
+      let fileToUpload = selectedFile;
+      
+      if (selectedFile.type.startsWith('image/')) {
+        uploadFileButton.textContent = 'Compressing image...';
+        fileToUpload = await optimizeImageForUpload(selectedFile);
+        
+        if (fileToUpload !== selectedFile) {
+          console.log(`Image optimized: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)}`);
+        }
+      }
+      
+      uploadFileButton.textContent = 'Uploading...';
+      
+      const formData = new FormData();
+      formData.append('file', fileToUpload);
+      if (caption) {
+        formData.append('caption', caption);
+      }
+      if (encrypt) {
+        formData.append('encrypt', 'true');
       }
 
-      const data = await response.json();
+      // Create XMLHttpRequest for upload progress
+      const xhr = new XMLHttpRequest();
+      
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100);
+          uploadFileButton.textContent = `Uploading... ${percentComplete}%`;
+        }
+      });
+      
+      // Handle response
+      const uploadPromise = new Promise((resolve, reject) => {
+        xhr.onload = () => {
+          if (xhr.status === 200 || xhr.status === 201) {
+            try {
+              const response = JSON.parse(xhr.responseText);
+              resolve(response);
+            } catch (e) {
+              reject(new Error('Invalid response format'));
+            }
+          } else {
+            try {
+              const errorData = JSON.parse(xhr.responseText);
+              reject(new Error(errorData.message || 'Upload failed'));
+            } catch (e) {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        };
+        
+        xhr.onerror = () => {
+          reject(new Error('Network error during upload'));
+        };
+        
+        xhr.ontimeout = () => {
+          reject(new Error('Upload timed out'));
+        };
+      });
+      
+      // Configure and send request
+      xhr.timeout = 60000; // 60 second timeout
+      xhr.open('POST', `/api/rooms/${roomId}/upload`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.send(formData);
+      
+      const data = await uploadPromise;
 
       if (!data.success) {
         throw new Error(data.message || 'Failed to upload file');
@@ -1072,12 +1355,33 @@ document.addEventListener('DOMContentLoaded', () => {
       // Clear file preview
       removeFile();
       
-      // Show success notification using stored filename
-      showSuccessMessage(`File "${fileName}" uploaded successfully!`);
+      // Show success notification with file size info
+      const sizeInfo = fileToUpload !== selectedFile ? 
+        ` (optimized from ${window.formatFileSize(selectedFile.size)})` : '';
+      showSuccessMessage(`File "${originalFileName}" uploaded successfully!${sizeInfo}`);
+      
+      // Add haptic feedback on mobile if available
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
       
     } catch (error) {
       console.error('Upload error:', error);
-      alert(`Error uploading file: ${error.message}`);
+      
+      // Show user-friendly error messages
+      let errorMessage = error.message;
+      if (error.message.includes('Network error')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (error.message.includes('timed out')) {
+        errorMessage = 'Upload timed out. Please try again with a smaller file.';
+      }
+      
+      alert(`Error uploading file: ${errorMessage}`);
+      
+      // Add error haptic feedback on mobile if available
+      if (navigator.vibrate) {
+        navigator.vibrate([100, 50, 100]);
+      }
     } finally {
       // Reset button state
       uploadFileButton.disabled = false;
@@ -1112,11 +1416,11 @@ document.addEventListener('DOMContentLoaded', () => {
     scrollToBottom();
   }
 
-  // Lazy loading for file previews
+  // Enhanced lazy loading for file previews with better mobile performance
   function setupLazyLoading() {
     const observerOptions = {
       root: messagesContainer,
-      rootMargin: '50px',
+      rootMargin: '100px', // Increased for better mobile performance
       threshold: 0.1
     };
     
@@ -1125,8 +1429,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (entry.isIntersecting) {
           const img = entry.target;
           if (img.dataset.src) {
-            img.src = img.dataset.src;
-            img.removeAttribute('data-src');
+            loadImageLazily(img);
             imageObserver.unobserve(img);
           }
         }
@@ -1136,6 +1439,100 @@ document.addEventListener('DOMContentLoaded', () => {
     // Observe images with data-src attribute
     document.querySelectorAll('img[data-src]').forEach(img => {
       imageObserver.observe(img);
+    });
+  }
+  
+  // Enhanced image loading with performance optimization
+  function loadImageLazily(img) {
+    // Add loading class for animation
+    img.classList.add('loading');
+    
+    // Create new image to preload
+    const newImg = new Image();
+    
+    newImg.onload = () => {
+      // Image loaded successfully
+      img.src = img.dataset.src;
+      img.removeAttribute('data-src');
+      img.classList.remove('loading');
+      img.classList.add('loaded');
+      
+      // Add fade-in animation
+      requestAnimationFrame(() => {
+        img.style.opacity = '1';
+      });
+    };
+    
+    newImg.onerror = () => {
+      // Image failed to load
+      img.classList.remove('loading');
+      img.alt = 'Failed to load image';
+      img.title = 'Image could not be loaded';
+      
+      // Show error placeholder
+      img.style.background = '#f3f4f6';
+      img.style.display = 'flex';
+      img.style.alignItems = 'center';
+      img.style.justifyContent = 'center';
+      img.textContent = '⚠️ Image unavailable';
+    };
+    
+    // Start loading
+    newImg.src = img.dataset.src;
+  }
+  
+  // Optimized image upload with compression for mobile
+  async function optimizeImageForUpload(file) {
+    return new Promise((resolve) => {
+      // Skip optimization for non-images or small files
+      if (!file.type.startsWith('image/') || file.size < 500000) {
+        resolve(file);
+        return;
+      }
+      
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        // Calculate optimal dimensions (max 1920x1080 for mobile)
+        const maxWidth = 1920;
+        const maxHeight = 1080;
+        let { width, height } = img;
+        
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width *= ratio;
+          height *= ratio;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Draw and compress
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob((blob) => {
+          if (blob && blob.size < file.size) {
+            // Use compressed version if smaller
+            const optimizedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            });
+            resolve(optimizedFile);
+          } else {
+            // Keep original if compression didn't help
+            resolve(file);
+          }
+        }, 'image/jpeg', 0.85);
+      };
+      
+      img.onerror = () => {
+        // If optimization fails, use original
+        resolve(file);
+      };
+      
+      img.src = URL.createObjectURL(file);
     });
   }
 
@@ -1164,13 +1561,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
-  // Initialize lazy loading when messages are displayed
-  function initializeLazyLoading() {
-    setTimeout(() => {
-      setupLazyLoading();
-    }, 100);
-  }
-
   // Function to handle logout
   function logout() {
     localStorage.removeItem('token');
@@ -1190,5 +1580,12 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/\n/g, '\\n')   // Escape newlines
       .replace(/\r/g, '\\r')   // Escape carriage returns
       .replace(/\t/g, '\\t');  // Escape tabs
+  }
+
+  // Initialize lazy loading when messages are displayed
+  function initializeLazyLoading() {
+    setTimeout(() => {
+      setupLazyLoading();
+    }, 100);
   }
 }); 

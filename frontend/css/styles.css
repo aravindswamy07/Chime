@@ -228,6 +228,7 @@ html, body {
 #file-viewer-modal {
   backdrop-filter: blur(4px);
   animation: fadeIn 0.3s ease-out;
+  touch-action: none; /* Prevent default touch behaviors */
 }
 
 #file-viewer-modal .max-w-6xl {
@@ -250,10 +251,25 @@ html, body {
   background: #f8fafc;
 }
 
+#image-viewer {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
 #image-viewer img {
   max-width: 90vw;
   max-height: 80vh;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+  transition: transform 0.3s ease;
+  transform-origin: center center;
+}
+
+#image-viewer img:active {
+  cursor: grabbing;
 }
 
 #pdf-viewer iframe {
@@ -325,6 +341,8 @@ html, body {
   border: 1px solid #e5e7eb;
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  padding: 16px;
 }
 
 #file-preview .file-icon svg {
@@ -362,6 +380,8 @@ html, body {
 #messages-container.drag-over {
   background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
   position: relative;
+  border: 2px dashed #0369a1;
+  border-radius: 12px;
 }
 
 #messages-container.drag-over::before {
@@ -372,56 +392,181 @@ html, body {
   transform: translate(-50%, -50%);
   background: rgba(59, 130, 246, 0.9);
   color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
+  padding: 16px 24px;
+  border-radius: 12px;
   font-weight: 500;
   pointer-events: none;
   z-index: 10;
   backdrop-filter: blur(4px);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  font-size: 16px;
 }
 
-/* File viewer modal responsive design */
+/* Mobile-optimized image viewer */
+#image-viewer {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+#image-viewer img {
+  max-width: 90vw;
+  max-height: 80vh;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  cursor: grab;
+  transition: transform 0.3s ease;
+  transform-origin: center center;
+}
+
+#image-viewer img:active {
+  cursor: grabbing;
+}
+
+/* Touch-friendly file upload and preview areas */
+.file-info, .image-preview {
+  min-height: 48px; /* Minimum touch target size */
+  transition: all 0.2s ease;
+}
+
+.file-info:hover, .image-preview:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Enhanced mobile UI for file messages */
+.message-bubble .file-message {
+  position: relative;
+}
+
+.message-bubble .image-preview img {
+  transition: all 0.2s ease;
+  border-radius: 8px;
+  max-width: 100%;
+  height: auto;
+}
+
+.message-bubble .image-preview img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Touch-friendly buttons and controls */
+.download-btn, .view-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  border-radius: 8px;
+}
+
+.download-btn:hover, .view-btn:hover {
+  transform: scale(1.1);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Mobile drag and drop enhancements */
+#messages-container.drag-over {
+  background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+  position: relative;
+  border: 2px dashed #0369a1;
+  border-radius: 12px;
+}
+
+#messages-container.drag-over::before {
+  content: "Drop files here to share";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  padding: 16px 24px;
+  border-radius: 12px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  font-size: 16px;
+}
+
+/* Improved file upload preview for mobile */
+#file-preview {
+  animation: slideInFromBottom 0.3s ease-out;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+#file-preview .file-icon svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+/* Mobile-responsive file viewer modal */
 @media (max-width: 768px) {
   #file-viewer-modal .max-w-6xl {
     max-width: 100vw;
     max-height: 100vh;
     border-radius: 0;
+    margin: 0;
+  }
+  
+  #file-viewer-modal .flex.justify-between {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  #viewer-file-name {
+    font-size: 16px;
+    line-height: 1.4;
+  }
+  
+  #viewer-file-info {
+    font-size: 14px;
+    margin-top: 4px;
   }
   
   #image-viewer img {
-    max-width: 95vw;
-    max-height: 70vh;
+    max-width: 100vw;
+    max-height: 85vh;
+    object-fit: contain;
   }
   
   #text-viewer pre {
-    font-size: 0.875rem;
+    font-size: 14px;
+    padding: 12px;
+    line-height: 1.5;
+  }
+  
+  .download-btn, .view-btn {
+    min-width: 48px;
+    min-height: 48px;
     padding: 12px;
   }
-}
-
-/* Lazy loading image placeholder */
-img[data-src] {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
-}
-
-@keyframes loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
+  
+  /* Touch-friendly close button */
+  #close-viewer-modal {
+    min-width: 48px;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
-/* Responsive message bubbles */
-@media (max-width: 640px) {
+/* Ultra-mobile (small phones) optimizations */
+@media (max-width: 480px) {
   .message-bubble {
-    max-width: 85%;
+    max-width: 90%;
     font-size: 14px;
-    padding: 10px 14px;
+    padding: 8px 12px;
   }
   
   .message-content {
@@ -433,15 +578,159 @@ img[data-src] {
   }
   
   .file-message .image-preview img {
-    max-width: 250px;
-    max-height: 200px;
+    max-width: 220px;
+    max-height: 160px;
   }
   
   .file-info {
-    padding: 8px 12px;
+    padding: 12px;
+    min-height: 56px;
   }
   
   .file-details {
-    font-size: 10px;
+    font-size: 11px;
   }
+  
+  #file-preview {
+    padding: 12px;
+  }
+  
+  #messages-container.drag-over::before {
+    padding: 12px 16px;
+    font-size: 14px;
+  }
+  
+  #viewer-file-name {
+    font-size: 14px;
+  }
+  
+  #viewer-file-info {
+    font-size: 12px;
+  }
+}
+
+/* Performance optimizations for image loading */
+.image-preview img[data-src] {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+  min-height: 100px;
+  border-radius: 8px;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Smooth image transitions */
+.image-preview img {
+  transition: opacity 0.3s ease, transform 0.2s ease;
+}
+
+.image-preview img.loading {
+  opacity: 0.7;
+}
+
+.image-preview img.loaded {
+  opacity: 1;
+}
+
+/* Accessibility improvements */
+.file-info:focus, .image-preview:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.download-btn:focus, .view-btn:focus {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .file-info {
+    border: 2px solid currentColor;
+  }
+  
+  .download-btn, .view-btn {
+    border: 1px solid currentColor;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .image-preview img,
+  .file-info,
+  .download-btn,
+  .view-btn {
+    transition: none;
+  }
+  
+  #file-viewer-modal,
+  #file-viewer-modal .max-w-6xl {
+    animation: none;
+  }
+}
+
+/* Dark mode optimizations */
+@media (prefers-color-scheme: dark) {
+  #file-preview {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    border-color: #374151;
+  }
+  
+  .image-preview img[data-src] {
+    background: linear-gradient(90deg, #374151 25%, #4b5563 50%, #374151 75%);
+  }
+}
+
+/* Improved touch targets for file actions */
+.file-message .flex.space-x-2 {
+  gap: 8px;
+}
+
+.file-message .flex.space-x-2 > * {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+/* Image viewer loading state */
+#viewer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+#viewer-loading .animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Mobile-friendly modal header */
+#file-viewer-modal .border-b {
+  position: sticky;
+  top: 0;
+  background: rgba(248, 250, 252, 0.95);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+
+/* Smooth modal transitions for mobile */
+#file-viewer-modal {
+  transition: opacity 0.3s ease, backdrop-filter 0.3s ease;
+}
+
+#file-viewer-modal.closing {
+  opacity: 0;
+  backdrop-filter: blur(0px);
 } 
