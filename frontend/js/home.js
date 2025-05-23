@@ -10,30 +10,38 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  // Global variables
+  let currentDeleteRoomId = null;
+
   // DOM elements
-  const usernameDisplay = document.getElementById('username-display');
-  const logoutButton = document.getElementById('logout-button');
   const roomsContainer = document.getElementById('rooms-container');
-  const createRoomModal = document.getElementById('create-room-modal');
-  const joinRoomModal = document.getElementById('join-room-modal');
   const createRoomButton = document.getElementById('create-room-button');
   const joinRoomButton = document.getElementById('join-room-button');
-  const closeCreateModalButton = document.getElementById('close-create-modal-button');
-  const closeJoinModalButton = document.getElementById('close-join-modal-button');
+  const createRoomModal = document.getElementById('create-room-modal');
+  const joinRoomModal = document.getElementById('join-room-modal');
   const createRoomForm = document.getElementById('create-room-form');
   const joinRoomForm = document.getElementById('join-room-form');
+  const closeCreateModalButton = document.getElementById('close-create-modal-button');
+  const closeJoinModalButton = document.getElementById('close-join-modal-button');
+  const usernameDisplay = document.getElementById('username-display');
+  const logoutButton = document.getElementById('logout-button');
 
   // Display username
   usernameDisplay.textContent = user.username;
 
   // Event listeners
-  logoutButton.addEventListener('click', logout);
   createRoomButton.addEventListener('click', openCreateRoomModal);
   joinRoomButton.addEventListener('click', openJoinRoomModal);
   closeCreateModalButton.addEventListener('click', closeCreateRoomModal);
   closeJoinModalButton.addEventListener('click', closeJoinRoomModal);
   createRoomForm.addEventListener('submit', createRoom);
   joinRoomForm.addEventListener('submit', joinRoomByCode);
+  logoutButton.addEventListener('click', logout);
+
+  // Add delete modal event listeners
+  document.getElementById('close-delete-modal-button').addEventListener('click', closeDeleteRoomModal);
+  document.getElementById('confirm-delete-button').addEventListener('click', confirmDeleteRoom);
+  document.getElementById('cancel-delete-button').addEventListener('click', closeDeleteRoomModal);
 
   // Event listeners for clicking outside modals to close them
   window.addEventListener('click', (e) => {
@@ -42,6 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (e.target === joinRoomModal) {
       closeJoinRoomModal();
+    }
+    if (e.target === document.getElementById('delete-room-modal')) {
+      closeDeleteRoomModal();
     }
   });
 
@@ -139,6 +150,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         data-room-id="${room.id}">
                   Share Code
                 </button>
+                <button class="delete-room-btn bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 transition-colors"
+                        data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}">
+                  Delete
+                </button>
               ` : ''}
             </div>
             
@@ -166,6 +181,15 @@ document.addEventListener('DOMContentLoaded', () => {
       button.addEventListener('click', (e) => {
         const roomId = e.target.dataset.roomId;
         showRoomCode(roomId);
+      });
+    });
+
+    // Add event listeners to delete room buttons
+    document.querySelectorAll('.delete-room-btn').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const roomId = e.target.dataset.roomId;
+        const roomName = e.target.dataset.roomName;
+        openDeleteRoomModal(roomId, roomName);
       });
     });
   }
@@ -405,6 +429,75 @@ document.addEventListener('DOMContentLoaded', () => {
       
     } catch (error) {
       alert(`Error creating room: ${error.message}`);
+    }
+  }
+
+  // Function to open delete room modal
+  function openDeleteRoomModal(roomId, roomName) {
+    // Set room name and ID for deletion
+    document.getElementById('delete-room-name').textContent = roomName;
+    currentDeleteRoomId = roomId;
+    
+    const deleteModal = document.getElementById('delete-room-modal');
+    deleteModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  // Function to close delete room modal
+  function closeDeleteRoomModal() {
+    const deleteModal = document.getElementById('delete-room-modal');
+    deleteModal.classList.add('hidden');
+    document.body.style.overflow = '';
+    currentDeleteRoomId = null;
+  }
+
+  // Function to confirm room deletion
+  async function confirmDeleteRoom() {
+    if (!currentDeleteRoomId) {
+      alert('No room selected for deletion');
+      return;
+    }
+
+    const confirmButton = document.getElementById('confirm-delete-button');
+    
+    try {
+      // Show loading state
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Deleting...';
+      
+      const response = await fetch(`/api/rooms/${currentDeleteRoomId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to delete room');
+      }
+      
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to delete room');
+      }
+      
+      // Close modal
+      closeDeleteRoomModal();
+      
+      // Show success message
+      alert('Room deleted successfully');
+      
+      // Refresh the rooms list
+      fetchRooms();
+      
+    } catch (error) {
+      // Reset button state
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Delete Room';
+      
+      // Show error
+      alert(`Error deleting room: ${error.message}`);
     }
   }
 
