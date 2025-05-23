@@ -777,7 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `<div class="image-preview mb-2 relative group">
               <img id="${imageId}"
                 data-src="${hasPreview ? message.preview_url : message.file_url}" 
-                alt="${escapeHtml(message.file_name)} - Click to view full size" 
+                alt="${escapeHtml(message.file_name)}" 
                 class="max-w-xs max-h-64 rounded-lg cursor-pointer transition-transform hover:scale-105 shadow-md loading" 
                 onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})"
                 role="button"
@@ -785,13 +785,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 onkeydown="if(event.key==='Enter'||event.key===' '){openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView});}"
                 loading="lazy"
                 style="opacity: 0;">
-              ${canView ? `<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-lg transition-all flex items-center justify-center" aria-hidden="true">
-                <svg class="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 6 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                <span class="sr-only">Click to view full size</span>
-              </div>` : ''}
             </div>` :
             `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg transition-all hover:bg-opacity-30 cursor-pointer"
               onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})"
@@ -809,19 +802,9 @@ document.addEventListener('DOMContentLoaded', () => {
                   <span>${window.formatFileSize(message.file_size || 0)}</span>
                   <span>•</span>
                   <span>${message.file_category || 'file'}</span>
-                  ${canView ? '<span>• <span class="text-blue-200">Click to view</span></span>' : ''}
                 </div>
               </div>
               <div class="flex space-x-2" role="group" aria-label="File actions">
-                ${canView ? `<button class="view-btn text-white hover:text-blue-200 transition-colors" 
-                    title="View file" 
-                    aria-label="View ${escapeHtml(message.file_name)}"
-                    onclick="event.stopPropagation(); openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView});">
-                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 6 0z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </button>` : ''}
                 <a href="${message.file_url}" download="${message.file_name}" 
                   class="download-btn text-white hover:text-gray-200 transition-colors" 
                   onclick="event.stopPropagation()" 
