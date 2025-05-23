@@ -40,7 +40,7 @@ const messageController = {
       const userId = req.user.id; // From auth middleware
       const { content } = req.body;
       
-      console.log(`User ${userId} sending message to room ${roomId}: "${content}"`);
+      console.log(`User ${userId} sending message to room ${roomId}: "${content}" (length: ${content?.length})`);
       
       // Validate input
       if (!content || content.trim().length === 0) {
@@ -57,12 +57,22 @@ const messageController = {
         });
       }
       
-      // Check if room exists
+      // Check if room exists and user is a member
       const room = await ChatRoom.getById(roomId);
       if (!room) {
         return res.status(404).json({
           success: false,
           message: 'Room not found'
+        });
+      }
+      
+      // Verify user is a member of the room
+      const isMember = await ChatRoom.isMember(roomId, userId);
+      if (!isMember) {
+        console.log(`User ${userId} is not a member of room ${roomId}`);
+        return res.status(403).json({
+          success: false,
+          message: 'You must be a member of the room to send messages'
         });
       }
       
@@ -81,7 +91,7 @@ const messageController = {
         });
       }
       
-      console.log(`Message created successfully with ID: ${message.id}`);
+      console.log(`Message created successfully with ID: ${message.id}, content: "${message.content}"`);
       
       return res.status(201).json({
         success: true,

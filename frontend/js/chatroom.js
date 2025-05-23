@@ -195,18 +195,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Function to get messages newer than the last known message
   function getNewerMessages(allMessages) {
-    if (!lastMessageId || allMessages.length === 0) {
+    if (!allMessages || allMessages.length === 0) {
       return [];
     }
     
+    // If we don't have a lastMessageId, consider all messages as new
+    if (!lastMessageId) {
+      console.log('No lastMessageId set, treating all messages as new');
+      return allMessages;
+    }
+    
     const lastIndex = allMessages.findIndex(msg => msg.id === lastMessageId);
+    
     if (lastIndex === -1) {
-      // If last message ID not found, return all messages (fallback)
+      // If last message ID not found, this could mean:
+      // 1. Messages were deleted, or 
+      // 2. There are newer messages beyond our current view
+      // Return all messages as a fallback
+      console.log(`Last message ID ${lastMessageId} not found in fetched messages, returning all`);
       return allMessages;
     }
     
     // Return messages after the last known message
-    return allMessages.slice(lastIndex + 1);
+    const newerMessages = allMessages.slice(lastIndex + 1);
+    console.log(`Found ${newerMessages.length} newer messages after ID ${lastMessageId}`);
+    return newerMessages;
   }
 
   // Function to display all messages (initial load)
@@ -327,6 +340,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Function to add temporary message
   function addTempMessage(tempMessage) {
+    // Add temp message to messages array for tracking
+    messages.push(tempMessage);
+    
     const messageDiv = document.createElement('div');
     messageDiv.innerHTML = createMessageHTML(tempMessage);
     const messageElement = messageDiv.firstElementChild;
@@ -359,9 +375,18 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update the content with real message data
       tempElement.innerHTML = createMessageHTML(realMessage).match(/<div class="message-bubble[^>]*"[^>]*>(.*)<\/div>/s)[1];
       
-      // Update our messages array
-      messages.push(realMessage);
+      // Update our messages array - replace the temp message instead of just adding
+      const tempIndex = messages.findIndex(msg => msg.id === tempId);
+      if (tempIndex !== -1) {
+        messages[tempIndex] = realMessage;
+      } else {
+        messages.push(realMessage);
+      }
+      
+      // Always update lastMessageId to ensure proper tracking
       lastMessageId = realMessage.id;
+      
+      console.log(`Replaced temp message ${tempId} with real message ${realMessage.id}`);
     }
   }
 
@@ -567,11 +592,18 @@ document.addEventListener('DOMContentLoaded', () => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
-  // Helper function to escape HTML
+  // Helper function to escape HTML but preserve emojis
   function escapeHtml(str) {
+    if (!str) return '';
+    
+    // Create a temporary element to escape HTML
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML;
+    let escaped = div.innerHTML;
+    
+    // The div.textContent approach preserves emojis naturally
+    // No additional processing needed for emoji support
+    return escaped;
   }
 
   // Function to handle logout
