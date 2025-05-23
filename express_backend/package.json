@@ -14,11 +14,16 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
     "bcryptjs": "^2.4.3",
+    "clamscan": "^2.4.0",
     "cors": "^2.8.5",
+    "crypto-js": "^4.2.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.0"
+    "mammoth": "^1.9.0",
+    "multer": "^2.0.0",
+    "pdf-thumbnail": "^1.0.6",
+    "sharp": "^0.34.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

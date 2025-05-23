@@ -19,8 +19,15 @@ ALTER TABLE messages ADD COLUMN file_type VARCHAR(100);
 ALTER TABLE messages ADD COLUMN file_url TEXT;
 ALTER TABLE messages ADD COLUMN message_type VARCHAR(20) DEFAULT 'text';
 
+-- Add enhanced file features
+ALTER TABLE messages ADD COLUMN preview_url TEXT;
+ALTER TABLE messages ADD COLUMN is_encrypted BOOLEAN DEFAULT FALSE;
+ALTER TABLE messages ADD COLUMN file_category VARCHAR(50);
+ALTER TABLE messages ADD COLUMN supports_inline_view BOOLEAN DEFAULT FALSE;
+
 -- Create index for file searches
 CREATE INDEX IF NOT EXISTS idx_messages_message_type ON messages(message_type);
+CREATE INDEX IF NOT EXISTS idx_messages_file_category ON messages(file_category);
 
 -- Update message content to be optional (for file-only messages)
 ALTER TABLE messages ALTER COLUMN content DROP NOT NULL; 

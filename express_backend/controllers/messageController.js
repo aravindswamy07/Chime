@@ -1,6 +1,6 @@
 const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
-const { getFileCategory, formatFileSize, uploadToSupabase } = require('../config/fileUpload');
+const { getFileCategory, formatFileSize, uploadToSupabase, supportsInlineViewing } = require('../config/fileUpload');
 
 // Controller for messages
 const messageController = {
@@ -138,7 +138,7 @@ const messageController = {
     try {
       const roomId = req.params.roomId;
       const userId = req.user.id;
-      const { caption } = req.body; // Optional caption for the file
+      const { caption, encrypt } = req.body; // Optional caption and encryption flag
       
       console.log(`User ${userId} uploading file to room ${roomId}`);
       
@@ -169,20 +169,31 @@ const messageController = {
       
       const file = req.file;
       
-      console.log(`Uploading file: ${file.originalname} (${formatFileSize(file.size)})`);
+      console.log(`Processing file: ${file.originalname} (${formatFileSize(file.size)})`);
       
-      // Upload file to Supabase Storage
-      const uploadResult = await uploadToSupabase(file, roomId);
+      // Upload file to Supabase Storage with security options
+      const uploadOptions = {
+        encrypt: encrypt === 'true' || encrypt === true
+      };
       
-      // Create message with file attachment
+      const uploadResult = await uploadToSupabase(file, roomId, uploadOptions);
+      
+      // Determine if file supports inline viewing
+      const supportsInline = supportsInlineViewing(file.mimetype);
+      
+      // Create message with enhanced file attachment data
       const message = await Message.create({
         roomId,
         senderId: userId,
-        content: caption || null, // Optional caption
+        content: caption || null,
         fileName: file.originalname,
         fileSize: file.size,
         fileType: file.mimetype,
         fileUrl: uploadResult.publicUrl,
+        previewUrl: uploadResult.previewUrl,
+        isEncrypted: uploadResult.isEncrypted,
+        fileCategory: uploadResult.fileCategory,
+        supportsInlineView: supportsInline,
         messageType: 'file'
       });
       
@@ -193,15 +204,17 @@ const messageController = {
         });
       }
       
-      console.log(`File message created with ID: ${message.id}`);
+      console.log(`Enhanced file message created with ID: ${message.id}`);
       
       return res.status(201).json({
         success: true,
         message: 'File uploaded successfully',
         data: {
           ...message,
-          fileCategory: getFileCategory(file.mimetype),
-          formattedSize: formatFileSize(file.size)
+          fileCategory: uploadResult.fileCategory,
+          formattedSize: formatFileSize(file.size),
+          supportsInlineView: supportsInline,
+          hasPreview: !!uploadResult.previewUrl
         }
       });
       
@@ -209,7 +222,7 @@ const messageController = {
       console.error('Upload file error:', error);
       return res.status(500).json({
         success: false,
-        message: 'Server error during file upload'
+        message: error.message || 'Server error during file upload'
       });
     }
   }

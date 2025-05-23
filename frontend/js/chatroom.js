@@ -51,6 +51,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const removeFileButton = document.getElementById('remove-file');
   const fileCaptionInput = document.getElementById('file-caption');
   const uploadFileButton = document.getElementById('upload-file-button');
+  const encryptFileCheckbox = document.getElementById('encrypt-file');
+
+  // File viewer elements
+  const fileViewerModal = document.getElementById('file-viewer-modal');
+  const closeViewerModal = document.getElementById('close-viewer-modal');
+  const viewerFileName = document.getElementById('viewer-file-name');
+  const viewerFileInfo = document.getElementById('viewer-file-info');
+  const viewerFileIcon = document.getElementById('viewer-file-icon');
+  const viewerDownloadBtn = document.getElementById('viewer-download-btn');
+  const viewerContent = document.getElementById('viewer-content');
+  const viewerLoading = document.getElementById('viewer-loading');
+  const imageViewer = document.getElementById('image-viewer');
+  const pdfViewer = document.getElementById('pdf-viewer');
+  const textViewer = document.getElementById('text-viewer');
+  const documentViewer = document.getElementById('document-viewer');
+  const unsupportedViewer = document.getElementById('unsupported-viewer');
 
   // File upload state
   let selectedFile = null;
@@ -87,6 +103,9 @@ document.addEventListener('DOMContentLoaded', () => {
   fileInput.addEventListener('change', handleFileSelect);
   removeFileButton.addEventListener('click', removeFile);
   uploadFileButton.addEventListener('click', uploadFile);
+
+  // File viewer event listeners
+  closeViewerModal.addEventListener('click', closeFileViewer);
 
   // Drag and drop event listeners
   messagesContainer.addEventListener('dragover', handleDragOver);
@@ -260,6 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const messagesHTML = messages.map(message => createMessageHTML(message)).join('');
     messagesContainer.innerHTML = messagesHTML;
     scrollToBottom();
+    initializeLazyLoading();
   }
 
   // Function to display new messages with animation
@@ -285,6 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     scrollToBottom();
+    initializeLazyLoading();
   }
 
   // Function to create message HTML
@@ -295,34 +316,62 @@ document.addEventListener('DOMContentLoaded', () => {
     const isTemp = message.id && message.id.toString().startsWith('temp-');
     const statusClass = isTemp ? 'sending' : '';
     
-    // Handle file messages
+    // Handle file messages with enhanced features
     if (message.message_type === 'file' && message.file_name) {
       const fileIcon = getFileIcon(message.file_type);
       const isImage = message.file_type && message.file_type.startsWith('image/');
+      const canView = message.supports_inline_view || supportsInlineViewing(message.file_type);
+      const hasPreview = message.preview_url;
+      const isEncrypted = message.is_encrypted;
       
       return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
         <div class="file-message">
           ${isImage ? 
-            `<div class="image-preview mb-2">
-              <img src="${message.file_url}" alt="${escapeHtml(message.file_name)}" 
-                class="max-w-xs max-h-64 rounded-lg cursor-pointer" 
-                onclick="openImageModal('${message.file_url}', '${escapeHtml(message.file_name)}')">
+            `<div class="image-preview mb-2 relative group">
+              <img src="${hasPreview ? message.preview_url : message.file_url}" 
+                alt="${escapeHtml(message.file_name)}" 
+                class="max-w-xs max-h-64 rounded-lg cursor-pointer transition-transform hover:scale-105 shadow-md" 
+                onclick="openFileViewer('${message.file_url}', '${escapeHtml(message.file_name)}', '${message.file_type}', ${message.file_size}, ${canView})">
+              ${canView ? `<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-lg transition-all flex items-center justify-center">
+                <svg class="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </div>` : ''}
             </div>` :
-            `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg">
+            `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg transition-all hover:bg-opacity-30 cursor-pointer"
+              onclick="openFileViewer('${message.file_url}', '${escapeHtml(message.file_name)}', '${message.file_type}', ${message.file_size}, ${canView})">
               <div class="file-icon">${fileIcon}</div>
               <div class="flex-1">
-                <div class="file-name font-medium">${escapeHtml(message.file_name)}</div>
-                <div class="file-size text-xs opacity-75">${formatFileSize(message.file_size || 0)}</div>
+                <div class="file-name font-medium flex items-center">
+                  ${escapeHtml(message.file_name)}
+                  ${isEncrypted ? '<span class="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">🔒 Encrypted</span>' : ''}
+                </div>
+                <div class="file-details text-xs opacity-75 flex items-center space-x-2">
+                  <span>${formatFileSize(message.file_size || 0)}</span>
+                  <span>•</span>
+                  <span>${message.file_category || 'file'}</span>
+                  ${canView ? '<span>• <span class="text-blue-200">Click to view</span></span>' : ''}
+                </div>
               </div>
-              <a href="${message.file_url}" download="${message.file_name}" 
-                class="download-btn text-white hover:text-gray-200 transition-colors">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 5a7 7 0 1014 0H5a7 7 0 1114 0z" />
-                </svg>
-              </a>
+              <div class="flex space-x-2">
+                ${canView ? `<button class="view-btn text-white hover:text-blue-200 transition-colors" title="View file">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                </button>` : ''}
+                <a href="${message.file_url}" download="${message.file_name}" 
+                  class="download-btn text-white hover:text-gray-200 transition-colors" 
+                  onclick="event.stopPropagation()" title="Download file">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 5a7 7 0 1014 0H5a7 7 0 1114 0z" />
+                  </svg>
+                </a>
+              </div>
             </div>`
           }
-          ${message.content ? `<div class="file-caption">${escapeHtml(message.content)}</div>` : ''}
+          ${message.content ? `<div class="file-caption text-sm italic opacity-90 mt-2">${escapeHtml(message.content)}</div>` : ''}
         </div>
         <div class="message-meta">
           ${senderName} • ${formatDate(message.created_at)}
@@ -753,10 +802,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const caption = fileCaptionInput.value.trim();
+    const encrypt = encryptFileCheckbox.checked;
     const formData = new FormData();
     formData.append('file', selectedFile);
     if (caption) {
       formData.append('caption', caption);
+    }
+    if (encrypt) {
+      formData.append('encrypt', 'true');
     }
 
     // Show loading state
@@ -785,14 +838,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // File uploaded successfully
-      console.log('File uploaded:', data.data);
+      console.log('Enhanced file uploaded:', data.data);
       
       // Clear file preview
       removeFile();
       
-      // The file message will appear via the polling system
+      // Show success notification
+      showSuccessMessage(`File "${selectedFile.name}" uploaded successfully!`);
       
     } catch (error) {
+      console.error('Upload error:', error);
       alert(`Error uploading file: ${error.message}`);
     } finally {
       // Reset button state
@@ -839,32 +894,208 @@ document.addEventListener('DOMContentLoaded', () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  // Open image modal for preview
-  function openImageModal(imageUrl, imageName) {
-    const modal = document.createElement('div');
-    modal.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50';
-    modal.innerHTML = `
-      <div class="max-w-4xl max-h-4xl p-4">
-        <div class="relative">
-          <img src="${imageUrl}" alt="${imageName}" class="max-w-full max-h-full rounded-lg">
-          <button class="absolute top-2 right-2 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75" onclick="this.parentElement.parentElement.parentElement.remove()">
-            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div class="text-white text-center mt-2">${imageName}</div>
-      </div>
-    `;
+  // Enhanced file viewer - replaces openImageModal
+  function openFileViewer(fileUrl, fileName, fileType, fileSize, canView) {
+    console.log(`Opening file viewer for: ${fileName} (${fileType})`);
     
-    // Close on click outside
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.remove();
+    // Set basic info
+    viewerFileName.textContent = fileName;
+    viewerFileInfo.textContent = `${formatFileSize(fileSize)} • ${fileType}`;
+    viewerFileIcon.innerHTML = getFileIcon(fileType);
+    viewerDownloadBtn.href = fileUrl;
+    viewerDownloadBtn.download = fileName;
+    
+    // Show modal and loading
+    fileViewerModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+    showViewerSection('loading');
+    
+    // Determine viewer type and load content
+    if (fileType.startsWith('image/')) {
+      loadImageViewer(fileUrl, fileName);
+    } else if (fileType === 'application/pdf') {
+      loadPdfViewer(fileUrl);
+    } else if (fileType === 'text/plain' || fileType === 'application/json') {
+      loadTextViewer(fileUrl, fileType);
+    } else if (fileType.includes('word') || fileType.includes('document')) {
+      showViewerSection('document');
+      document.getElementById('document-download-btn').href = fileUrl;
+      document.getElementById('document-download-btn').download = fileName;
+    } else {
+      showViewerSection('unsupported');
+      document.getElementById('unsupported-download-btn').href = fileUrl;
+      document.getElementById('unsupported-download-btn').download = fileName;
+    }
+  }
+
+  // Show specific viewer section
+  function showViewerSection(section) {
+    // Hide all viewer sections
+    viewerLoading.classList.add('hidden');
+    imageViewer.classList.add('hidden');
+    pdfViewer.classList.add('hidden');
+    textViewer.classList.add('hidden');
+    documentViewer.classList.add('hidden');
+    unsupportedViewer.classList.add('hidden');
+    
+    // Show requested section
+    switch (section) {
+      case 'loading':
+        viewerLoading.classList.remove('hidden');
+        break;
+      case 'image':
+        imageViewer.classList.remove('hidden');
+        break;
+      case 'pdf':
+        pdfViewer.classList.remove('hidden');
+        break;
+      case 'text':
+        textViewer.classList.remove('hidden');
+        break;
+      case 'document':
+        documentViewer.classList.remove('hidden');
+        break;
+      case 'unsupported':
+        unsupportedViewer.classList.remove('hidden');
+        break;
+    }
+  }
+
+  // Load image in viewer
+  function loadImageViewer(imageUrl, imageName) {
+    const viewerImage = document.getElementById('viewer-image');
+    
+    viewerImage.onload = () => {
+      showViewerSection('image');
+    };
+    
+    viewerImage.onerror = () => {
+      console.error('Failed to load image');
+      showViewerSection('unsupported');
+    };
+    
+    viewerImage.src = imageUrl;
+    viewerImage.alt = imageName;
+  }
+
+  // Load PDF in viewer
+  function loadPdfViewer(pdfUrl) {
+    const viewerPdf = document.getElementById('viewer-pdf');
+    
+    // Use browser's built-in PDF viewer
+    viewerPdf.onload = () => {
+      showViewerSection('pdf');
+    };
+    
+    viewerPdf.onerror = () => {
+      console.error('Failed to load PDF');
+      showViewerSection('unsupported');
+    };
+    
+    // Add PDF.js viewer prefix for better compatibility
+    viewerPdf.src = `${pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`;
+  }
+
+  // Load text file in viewer
+  async function loadTextViewer(textUrl, fileType) {
+    try {
+      const response = await fetch(textUrl);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-    });
+      
+      const text = await response.text();
+      const viewerText = document.getElementById('viewer-text');
+      
+      // Format based on file type
+      if (fileType === 'application/json') {
+        try {
+          const formatted = JSON.stringify(JSON.parse(text), null, 2);
+          viewerText.textContent = formatted;
+        } catch (e) {
+          viewerText.textContent = text;
+        }
+      } else {
+        viewerText.textContent = text;
+      }
+      
+      showViewerSection('text');
+      
+    } catch (error) {
+      console.error('Failed to load text file:', error);
+      showViewerSection('unsupported');
+    }
+  }
+
+  // Close file viewer
+  function closeFileViewer() {
+    fileViewerModal.classList.add('hidden');
+    document.body.style.overflow = '';
     
-    document.body.appendChild(modal);
+    // Clear viewer content
+    document.getElementById('viewer-image').src = '';
+    document.getElementById('viewer-pdf').src = '';
+    document.getElementById('viewer-text').textContent = '';
+  }
+
+  // Check if file supports inline viewing
+  function supportsInlineViewing(fileType) {
+    const viewableTypes = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf',
+      'text/plain', 'application/json'
+    ];
+    return viewableTypes.includes(fileType);
+  }
+
+  // Show success message
+  function showSuccessMessage(message) {
+    const successDiv = document.createElement('div');
+    successDiv.className = 'success-message bg-green-100 border border-green-300 text-green-700 text-center py-2 mx-4 my-2 rounded-md';
+    successDiv.textContent = message;
+    messagesContainer.appendChild(successDiv);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+      if (successDiv.parentNode) {
+        successDiv.remove();
+      }
+    }, 3000);
+    
+    scrollToBottom();
+  }
+
+  // Lazy loading for file previews
+  function setupLazyLoading() {
+    const observerOptions = {
+      root: messagesContainer,
+      rootMargin: '50px',
+      threshold: 0.1
+    };
+    
+    const imageObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const img = entry.target;
+          if (img.dataset.src) {
+            img.src = img.dataset.src;
+            img.removeAttribute('data-src');
+            imageObserver.unobserve(img);
+          }
+        }
+      });
+    }, observerOptions);
+    
+    // Observe images with data-src attribute
+    document.querySelectorAll('img[data-src]').forEach(img => {
+      imageObserver.observe(img);
+    });
+  }
+
+  // Open image modal for preview (backward compatibility)
+  function openImageModal(imageUrl, imageName) {
+    openFileViewer(imageUrl, imageName, 'image/jpeg', 0, true);
   }
 
   // Helper function to escape HTML but preserve emojis
@@ -885,6 +1116,13 @@ document.addEventListener('DOMContentLoaded', () => {
   function formatDate(dateString) {
     const date = new Date(dateString);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // Initialize lazy loading when messages are displayed
+  function initializeLazyLoading() {
+    setTimeout(() => {
+      setupLazyLoading();
+    }, 100);
   }
 
   // Function to handle logout

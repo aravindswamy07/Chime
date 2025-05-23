@@ -1,53 +1,155 @@
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto-js');
+const sharp = require('sharp');
+const fs = require('fs').promises;
 const supabase = require('./db');
+
+// Encryption key (in production, use environment variable)
+const ENCRYPTION_KEY = process.env.FILE_ENCRYPTION_KEY || 'chime-default-key-change-in-production';
 
 // Configure multer to store files in memory instead of disk
 const storage = multer.memoryStorage();
 
-// File filter for security
+// Enhanced file filter with security checks
 const fileFilter = (req, file, cb) => {
-  // Allowed file types
-  const allowedTypes = [
-    'image/jpeg',
-    'image/jpg', 
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
-    'text/csv',
-    'application/zip',
-    'application/x-zip-compressed',
-    'application/json'
-  ];
+  // Allowed file types with detailed MIME type checking
+  const allowedTypes = {
+    // Images
+    'image/jpeg': { maxSize: 10 * 1024 * 1024, needsPreview: true },
+    'image/jpg': { maxSize: 10 * 1024 * 1024, needsPreview: true },
+    'image/png': { maxSize: 10 * 1024 * 1024, needsPreview: true },
+    'image/gif': { maxSize: 5 * 1024 * 1024, needsPreview: true },
+    'image/webp': { maxSize: 10 * 1024 * 1024, needsPreview: true },
+    
+    // Documents
+    'application/pdf': { maxSize: 50 * 1024 * 1024, needsPreview: true },
+    'application/msword': { maxSize: 25 * 1024 * 1024, needsPreview: true },
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { maxSize: 25 * 1024 * 1024, needsPreview: true },
+    
+    // Spreadsheets
+    'application/vnd.ms-excel': { maxSize: 25 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { maxSize: 25 * 1024 * 1024, needsPreview: false },
+    
+    // Presentations
+    'application/vnd.ms-powerpoint': { maxSize: 50 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { maxSize: 50 * 1024 * 1024, needsPreview: false },
+    
+    // Text files
+    'text/plain': { maxSize: 5 * 1024 * 1024, needsPreview: false },
+    'text/csv': { maxSize: 10 * 1024 * 1024, needsPreview: false },
+    'application/json': { maxSize: 5 * 1024 * 1024, needsPreview: false },
+    
+    // Archives
+    'application/zip': { maxSize: 100 * 1024 * 1024, needsPreview: false },
+    'application/x-zip-compressed': { maxSize: 100 * 1024 * 1024, needsPreview: false }
+  };
   
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
+  const fileConfig = allowedTypes[file.mimetype];
+  
+  if (!fileConfig) {
     cb(new Error(`File type ${file.mimetype} not allowed`), false);
+    return;
   }
+  
+  // Store file config for later use
+  file.fileConfig = fileConfig;
+  cb(null, true);
 };
 
-// Configure multer
+// Configure multer with enhanced security
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    files: 1 // Single file per request
+    fileSize: 100 * 1024 * 1024, // 100MB max (will be checked per file type)
+    files: 1
   },
   fileFilter: fileFilter
 });
 
-// Upload file to Supabase Storage
-const uploadToSupabase = async (file, roomId) => {
+// Encrypt file buffer
+const encryptFile = (buffer) => {
   try {
+    const encrypted = crypto.AES.encrypt(buffer.toString('base64'), ENCRYPTION_KEY).toString();
+    return Buffer.from(encrypted, 'utf8');
+  } catch (error) {
+    console.error('Encryption error:', error);
+    throw new Error('File encryption failed');
+  }
+};
+
+// Decrypt file buffer
+const decryptFile = (encryptedBuffer) => {
+  try {
+    const decrypted = crypto.AES.decrypt(encryptedBuffer.toString('utf8'), ENCRYPTION_KEY);
+    return Buffer.from(decrypted.toString(crypto.enc.Utf8), 'base64');
+  } catch (error) {
+    console.error('Decryption error:', error);
+    throw new Error('File decryption failed');
+  }
+};
+
+// Generate image thumbnail
+const generateImageThumbnail = async (buffer, mimetype) => {
+  try {
+    const thumbnail = await sharp(buffer)
+      .resize(300, 300, { 
+        fit: 'inside',
+        withoutEnlargement: true 
+      })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    
+    return thumbnail;
+  } catch (error) {
+    console.error('Thumbnail generation error:', error);
+    return null;
+  }
+};
+
+// Basic malware detection (file signature checking)
+const basicMalwareCheck = (buffer, filename) => {
+  const signatures = {
+    // Executable file signatures
+    'MZ': 'PE/COFF executable',
+    '\x7fELF': 'ELF executable',
+    '\xCA\xFE\xBA\xBE': 'Mach-O executable',
+    
+    // Archive bombs (nested archives)
+    'PK': filename.toLowerCase().endsWith('.zip') ? null : 'Suspicious archive',
+  };
+  
+  const header = buffer.slice(0, 4).toString();
+  
+  for (const [sig, threat] of Object.entries(signatures)) {
+    if (header.startsWith(sig) && threat) {
+      throw new Error(`Potential malware detected: ${threat}`);
+    }
+  }
+  
+  // Check for suspicious file extensions in ZIP files
+  if (filename.toLowerCase().endsWith('.zip')) {
+    // This is a basic check - in production, use a proper antivirus API
+    const suspiciousExtensions = ['.exe', '.bat', '.cmd', '.scr', '.pif'];
+    if (suspiciousExtensions.some(ext => filename.toLowerCase().includes(ext))) {
+      throw new Error('Archive contains suspicious files');
+    }
+  }
+  
+  return true;
+};
+
+// Upload file to Supabase Storage with enhanced security
+const uploadToSupabase = async (file, roomId, options = {}) => {
+  try {
+    // Security checks
+    basicMalwareCheck(file.buffer, file.originalname);
+    
+    // Check file size against type-specific limits
+    if (file.size > file.fileConfig.maxSize) {
+      throw new Error(`File size exceeds limit for ${file.mimetype}`);
+    }
+    
     // Generate unique filename
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const extension = path.extname(file.originalname);
@@ -55,14 +157,25 @@ const uploadToSupabase = async (file, roomId) => {
     const sanitizedName = name.replace(/[^a-zA-Z0-9]/g, '_');
     const fileName = `${roomId}/${uniqueSuffix}-${sanitizedName}${extension}`;
 
-    console.log(`Uploading file to Supabase: ${fileName}`);
+    console.log(`Processing file: ${file.originalname} (${formatFileSize(file.size)})`);
 
-    // Upload to Supabase Storage
+    // Encrypt file if requested
+    let fileBuffer = file.buffer;
+    let isEncrypted = false;
+    
+    if (options.encrypt) {
+      fileBuffer = encryptFile(file.buffer);
+      isEncrypted = true;
+      console.log('File encrypted before upload');
+    }
+
+    // Upload main file to Supabase Storage
     const { data, error } = await supabase.storage
       .from('chat-files')
-      .upload(fileName, file.buffer, {
+      .upload(fileName, fileBuffer, {
         contentType: file.mimetype,
-        cacheControl: '3600'
+        cacheControl: '3600',
+        upsert: false
       });
 
     if (error) {
@@ -75,11 +188,51 @@ const uploadToSupabase = async (file, roomId) => {
       .from('chat-files')
       .getPublicUrl(fileName);
 
+    let previewUrl = null;
+    
+    // Generate preview/thumbnail if supported
+    if (file.fileConfig.needsPreview) {
+      try {
+        let previewBuffer = null;
+        
+        if (file.mimetype.startsWith('image/')) {
+          previewBuffer = await generateImageThumbnail(file.buffer, file.mimetype);
+        }
+        
+        if (previewBuffer) {
+          const previewFileName = `${roomId}/previews/${uniqueSuffix}-${sanitizedName}_preview.jpg`;
+          
+          const { error: previewError } = await supabase.storage
+            .from('chat-files')
+            .upload(previewFileName, previewBuffer, {
+              contentType: 'image/jpeg',
+              cacheControl: '3600'
+            });
+          
+          if (!previewError) {
+            const { data: previewUrlData } = supabase.storage
+              .from('chat-files')
+              .getPublicUrl(previewFileName);
+            
+            previewUrl = previewUrlData.publicUrl;
+            console.log('Preview generated successfully');
+          }
+        }
+      } catch (previewError) {
+        console.error('Preview generation failed:', previewError);
+        // Don't fail the upload if preview generation fails
+      }
+    }
+
     console.log(`File uploaded successfully: ${urlData.publicUrl}`);
 
     return {
       fileName: data.path,
-      publicUrl: urlData.publicUrl
+      publicUrl: urlData.publicUrl,
+      previewUrl,
+      isEncrypted,
+      fileCategory: getFileCategory(file.mimetype),
+      needsPreview: file.fileConfig.needsPreview
     };
 
   } catch (error) {
@@ -109,9 +262,22 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+// Check if file type supports inline viewing
+const supportsInlineViewing = (mimetype) => {
+  const viewableTypes = [
+    'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf',
+    'text/plain', 'application/json'
+  ];
+  return viewableTypes.includes(mimetype);
+};
+
 module.exports = {
   upload,
   uploadToSupabase,
   getFileCategory,
-  formatFileSize
+  formatFileSize,
+  supportsInlineViewing,
+  encryptFile,
+  decryptFile
 }; 

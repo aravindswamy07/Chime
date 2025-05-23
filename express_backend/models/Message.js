@@ -44,6 +44,12 @@ class Message {
         insertData.file_type = messageData.fileType;
         insertData.file_url = messageData.fileUrl;
         insertData.message_type = 'file';
+        
+        // Add enhanced file features
+        insertData.preview_url = messageData.previewUrl || null;
+        insertData.is_encrypted = messageData.isEncrypted || false;
+        insertData.file_category = messageData.fileCategory || 'file';
+        insertData.supports_inline_view = messageData.supportsInlineView || false;
       }
 
       const { data, error } = await supabase
