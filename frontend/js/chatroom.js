@@ -1,5 +1,211 @@
 // Chat room page JavaScript
 
+// Global file viewer function (needs to be accessible from onclick handlers)
+window.openFileViewer = function(fileUrl, fileName, fileType, fileSize, canView) {
+  console.log(`Opening file viewer for: ${fileName} (${fileType})`);
+  
+  // Get elements
+  const fileViewerModal = document.getElementById('file-viewer-modal');
+  const viewerFileName = document.getElementById('viewer-file-name');
+  const viewerFileInfo = document.getElementById('viewer-file-info');
+  const viewerFileIcon = document.getElementById('viewer-file-icon');
+  const viewerDownloadBtn = document.getElementById('viewer-download-btn');
+  
+  if (!fileViewerModal) {
+    console.error('File viewer modal not found');
+    return;
+  }
+  
+  // Set basic info
+  viewerFileName.textContent = fileName;
+  viewerFileInfo.textContent = `${window.formatFileSize(fileSize)} • ${fileType}`;
+  viewerFileIcon.innerHTML = window.getFileIcon(fileType);
+  viewerDownloadBtn.href = fileUrl;
+  viewerDownloadBtn.download = fileName;
+  
+  // Show modal and loading
+  fileViewerModal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  showViewerSection('loading');
+  
+  // Determine viewer type and load content
+  if (fileType.startsWith('image/')) {
+    loadImageViewer(fileUrl, fileName);
+  } else if (fileType === 'application/pdf') {
+    loadPdfViewer(fileUrl);
+  } else if (fileType === 'text/plain' || fileType === 'application/json') {
+    loadTextViewer(fileUrl, fileType);
+  } else if (fileType.includes('word') || fileType.includes('document')) {
+    showViewerSection('document');
+    document.getElementById('document-download-btn').href = fileUrl;
+    document.getElementById('document-download-btn').download = fileName;
+  } else {
+    showViewerSection('unsupported');
+    document.getElementById('unsupported-download-btn').href = fileUrl;
+    document.getElementById('unsupported-download-btn').download = fileName;
+  }
+};
+
+// Global utility functions
+window.formatFileSize = function(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
+
+window.getFileIcon = function(fileType) {
+  if (fileType.startsWith('image/')) {
+    return `<svg class="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>`;
+  } else if (fileType === 'application/pdf') {
+    return `<svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+    </svg>`;
+  } else if (fileType.includes('word') || fileType.includes('document')) {
+    return `<svg class="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>`;
+  } else if (fileType.includes('excel') || fileType.includes('spreadsheet')) {
+    return `<svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+    </svg>`;
+  } else if (fileType.includes('zip')) {
+    return `<svg class="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+    </svg>`;
+  } else {
+    return `<svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>`;
+  }
+};
+
+// Helper functions for file viewer
+window.showViewerSection = function(section) {
+  const viewerLoading = document.getElementById('viewer-loading');
+  const imageViewer = document.getElementById('image-viewer');
+  const pdfViewer = document.getElementById('pdf-viewer');
+  const textViewer = document.getElementById('text-viewer');
+  const documentViewer = document.getElementById('document-viewer');
+  const unsupportedViewer = document.getElementById('unsupported-viewer');
+  
+  // Hide all viewer sections
+  if (viewerLoading) viewerLoading.classList.add('hidden');
+  if (imageViewer) imageViewer.classList.add('hidden');
+  if (pdfViewer) pdfViewer.classList.add('hidden');
+  if (textViewer) textViewer.classList.add('hidden');
+  if (documentViewer) documentViewer.classList.add('hidden');
+  if (unsupportedViewer) unsupportedViewer.classList.add('hidden');
+  
+  // Show requested section
+  switch (section) {
+    case 'loading':
+      if (viewerLoading) viewerLoading.classList.remove('hidden');
+      break;
+    case 'image':
+      if (imageViewer) imageViewer.classList.remove('hidden');
+      break;
+    case 'pdf':
+      if (pdfViewer) pdfViewer.classList.remove('hidden');
+      break;
+    case 'text':
+      if (textViewer) textViewer.classList.remove('hidden');
+      break;
+    case 'document':
+      if (documentViewer) documentViewer.classList.remove('hidden');
+      break;
+    case 'unsupported':
+      if (unsupportedViewer) unsupportedViewer.classList.remove('hidden');
+      break;
+  }
+};
+
+window.loadImageViewer = function(imageUrl, imageName) {
+  const viewerImage = document.getElementById('viewer-image');
+  if (!viewerImage) return;
+  
+  viewerImage.onload = () => {
+    showViewerSection('image');
+  };
+  
+  viewerImage.onerror = () => {
+    console.error('Failed to load image');
+    showViewerSection('unsupported');
+  };
+  
+  viewerImage.src = imageUrl;
+  viewerImage.alt = imageName;
+};
+
+window.loadPdfViewer = function(pdfUrl) {
+  const viewerPdf = document.getElementById('viewer-pdf');
+  if (!viewerPdf) return;
+  
+  viewerPdf.onload = () => {
+    showViewerSection('pdf');
+  };
+  
+  viewerPdf.onerror = () => {
+    console.error('Failed to load PDF');
+    showViewerSection('unsupported');
+  };
+  
+  viewerPdf.src = `${pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`;
+};
+
+window.loadTextViewer = async function(textUrl, fileType) {
+  try {
+    const response = await fetch(textUrl);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    
+    const text = await response.text();
+    const viewerText = document.getElementById('viewer-text');
+    if (!viewerText) return;
+    
+    // Format based on file type
+    if (fileType === 'application/json') {
+      try {
+        const formatted = JSON.stringify(JSON.parse(text), null, 2);
+        viewerText.textContent = formatted;
+      } catch (e) {
+        viewerText.textContent = text;
+      }
+    } else {
+      viewerText.textContent = text;
+    }
+    
+    showViewerSection('text');
+    
+  } catch (error) {
+    console.error('Failed to load text file:', error);
+    showViewerSection('unsupported');
+  }
+};
+
+// Close file viewer - global function
+window.closeFileViewer = function() {
+  const fileViewerModal = document.getElementById('file-viewer-modal');
+  if (fileViewerModal) {
+    fileViewerModal.classList.add('hidden');
+    document.body.style.overflow = '';
+    
+    // Clear viewer content
+    const viewerImage = document.getElementById('viewer-image');
+    const viewerPdf = document.getElementById('viewer-pdf');
+    const viewerText = document.getElementById('viewer-text');
+    
+    if (viewerImage) viewerImage.src = '';
+    if (viewerPdf) viewerPdf.src = '';
+    if (viewerText) viewerText.textContent = '';
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   // Check if user is logged in
   const token = localStorage.getItem('token');
@@ -105,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
   uploadFileButton.addEventListener('click', uploadFile);
 
   // File viewer event listeners
-  closeViewerModal.addEventListener('click', closeFileViewer);
+  closeViewerModal.addEventListener('click', window.closeFileViewer);
 
   // Drag and drop event listeners
   messagesContainer.addEventListener('dragover', handleDragOver);
@@ -120,6 +326,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (e.target === deleteRoomModal) {
       closeDeleteRoomModal();
+    }
+    if (e.target === fileViewerModal) {
+      window.closeFileViewer();
     }
   });
 
@@ -318,7 +527,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Handle file messages with enhanced features
     if (message.message_type === 'file' && message.file_name) {
-      const fileIcon = getFileIcon(message.file_type);
+      const fileIcon = window.getFileIcon(message.file_type);
       const isImage = message.file_type && message.file_type.startsWith('image/');
       const canView = message.supports_inline_view || supportsInlineViewing(message.file_type);
       const hasPreview = message.preview_url;
@@ -348,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   ${isEncrypted ? '<span class="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">🔒 Encrypted</span>' : ''}
                 </div>
                 <div class="file-details text-xs opacity-75 flex items-center space-x-2">
-                  <span>${formatFileSize(message.file_size || 0)}</span>
+                  <span>${window.formatFileSize(message.file_size || 0)}</span>
                   <span>•</span>
                   <span>${message.file_category || 'file'}</span>
                   ${canView ? '<span>• <span class="text-blue-200">Click to view</span></span>' : ''}
@@ -778,8 +987,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Show file preview
   function showFilePreview(file) {
     fileName.textContent = file.name;
-    fileSize.textContent = formatFileSize(file.size);
-    fileIcon.innerHTML = getFileIcon(file.type);
+    fileSize.textContent = window.formatFileSize(file.size);
+    fileIcon.innerHTML = window.getFileIcon(file.type);
     fileCaptionInput.value = '';
     filePreview.classList.remove('hidden');
     
@@ -803,6 +1012,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const caption = fileCaptionInput.value.trim();
     const encrypt = encryptFileCheckbox.checked;
+    const fileName = selectedFile.name; // Store filename before clearing selectedFile
     const formData = new FormData();
     formData.append('file', selectedFile);
     if (caption) {
@@ -843,8 +1053,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // Clear file preview
       removeFile();
       
-      // Show success notification
-      showSuccessMessage(`File "${selectedFile.name}" uploaded successfully!`);
+      // Show success notification using stored filename
+      showSuccessMessage(`File "${fileName}" uploaded successfully!`);
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -854,189 +1064,6 @@ document.addEventListener('DOMContentLoaded', () => {
       uploadFileButton.disabled = false;
       uploadFileButton.textContent = originalText;
     }
-  }
-
-  // Get file icon based on file type
-  function getFileIcon(fileType) {
-    if (fileType.startsWith('image/')) {
-      return `<svg class="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>`;
-    } else if (fileType === 'application/pdf') {
-      return `<svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-      </svg>`;
-    } else if (fileType.includes('word') || fileType.includes('document')) {
-      return `<svg class="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>`;
-    } else if (fileType.includes('excel') || fileType.includes('spreadsheet')) {
-      return `<svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>`;
-    } else if (fileType.includes('zip')) {
-      return `<svg class="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-      </svg>`;
-    } else {
-      return `<svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>`;
-    }
-  }
-
-  // Format file size
-  function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
-
-  // Enhanced file viewer - replaces openImageModal
-  function openFileViewer(fileUrl, fileName, fileType, fileSize, canView) {
-    console.log(`Opening file viewer for: ${fileName} (${fileType})`);
-    
-    // Set basic info
-    viewerFileName.textContent = fileName;
-    viewerFileInfo.textContent = `${formatFileSize(fileSize)} • ${fileType}`;
-    viewerFileIcon.innerHTML = getFileIcon(fileType);
-    viewerDownloadBtn.href = fileUrl;
-    viewerDownloadBtn.download = fileName;
-    
-    // Show modal and loading
-    fileViewerModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-    showViewerSection('loading');
-    
-    // Determine viewer type and load content
-    if (fileType.startsWith('image/')) {
-      loadImageViewer(fileUrl, fileName);
-    } else if (fileType === 'application/pdf') {
-      loadPdfViewer(fileUrl);
-    } else if (fileType === 'text/plain' || fileType === 'application/json') {
-      loadTextViewer(fileUrl, fileType);
-    } else if (fileType.includes('word') || fileType.includes('document')) {
-      showViewerSection('document');
-      document.getElementById('document-download-btn').href = fileUrl;
-      document.getElementById('document-download-btn').download = fileName;
-    } else {
-      showViewerSection('unsupported');
-      document.getElementById('unsupported-download-btn').href = fileUrl;
-      document.getElementById('unsupported-download-btn').download = fileName;
-    }
-  }
-
-  // Show specific viewer section
-  function showViewerSection(section) {
-    // Hide all viewer sections
-    viewerLoading.classList.add('hidden');
-    imageViewer.classList.add('hidden');
-    pdfViewer.classList.add('hidden');
-    textViewer.classList.add('hidden');
-    documentViewer.classList.add('hidden');
-    unsupportedViewer.classList.add('hidden');
-    
-    // Show requested section
-    switch (section) {
-      case 'loading':
-        viewerLoading.classList.remove('hidden');
-        break;
-      case 'image':
-        imageViewer.classList.remove('hidden');
-        break;
-      case 'pdf':
-        pdfViewer.classList.remove('hidden');
-        break;
-      case 'text':
-        textViewer.classList.remove('hidden');
-        break;
-      case 'document':
-        documentViewer.classList.remove('hidden');
-        break;
-      case 'unsupported':
-        unsupportedViewer.classList.remove('hidden');
-        break;
-    }
-  }
-
-  // Load image in viewer
-  function loadImageViewer(imageUrl, imageName) {
-    const viewerImage = document.getElementById('viewer-image');
-    
-    viewerImage.onload = () => {
-      showViewerSection('image');
-    };
-    
-    viewerImage.onerror = () => {
-      console.error('Failed to load image');
-      showViewerSection('unsupported');
-    };
-    
-    viewerImage.src = imageUrl;
-    viewerImage.alt = imageName;
-  }
-
-  // Load PDF in viewer
-  function loadPdfViewer(pdfUrl) {
-    const viewerPdf = document.getElementById('viewer-pdf');
-    
-    // Use browser's built-in PDF viewer
-    viewerPdf.onload = () => {
-      showViewerSection('pdf');
-    };
-    
-    viewerPdf.onerror = () => {
-      console.error('Failed to load PDF');
-      showViewerSection('unsupported');
-    };
-    
-    // Add PDF.js viewer prefix for better compatibility
-    viewerPdf.src = `${pdfUrl}#toolbar=1&navpanes=1&scrollbar=1`;
-  }
-
-  // Load text file in viewer
-  async function loadTextViewer(textUrl, fileType) {
-    try {
-      const response = await fetch(textUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const text = await response.text();
-      const viewerText = document.getElementById('viewer-text');
-      
-      // Format based on file type
-      if (fileType === 'application/json') {
-        try {
-          const formatted = JSON.stringify(JSON.parse(text), null, 2);
-          viewerText.textContent = formatted;
-        } catch (e) {
-          viewerText.textContent = text;
-        }
-      } else {
-        viewerText.textContent = text;
-      }
-      
-      showViewerSection('text');
-      
-    } catch (error) {
-      console.error('Failed to load text file:', error);
-      showViewerSection('unsupported');
-    }
-  }
-
-  // Close file viewer
-  function closeFileViewer() {
-    fileViewerModal.classList.add('hidden');
-    document.body.style.overflow = '';
-    
-    // Clear viewer content
-    document.getElementById('viewer-image').src = '';
-    document.getElementById('viewer-pdf').src = '';
-    document.getElementById('viewer-text').textContent = '';
   }
 
   // Check if file supports inline viewing
