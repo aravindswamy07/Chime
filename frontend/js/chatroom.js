@@ -3,6 +3,8 @@
 // Global file viewer function (needs to be accessible from onclick handlers)
 window.openFileViewer = function(fileUrl, fileName, fileType, fileSize, canView) {
   console.log(`Opening file viewer for: ${fileName} (${fileType})`);
+  console.log(`File URL: ${fileUrl}`);
+  console.log(`Can view: ${canView}`);
   
   // Get elements
   const fileViewerModal = document.getElementById('file-viewer-modal');
@@ -30,16 +32,21 @@ window.openFileViewer = function(fileUrl, fileName, fileType, fileSize, canView)
   
   // Determine viewer type and load content
   if (fileType.startsWith('image/')) {
+    console.log('Loading image viewer...');
     loadImageViewer(fileUrl, fileName);
   } else if (fileType === 'application/pdf') {
+    console.log('Loading PDF viewer...');
     loadPdfViewer(fileUrl);
   } else if (fileType === 'text/plain' || fileType === 'application/json') {
+    console.log('Loading text viewer...');
     loadTextViewer(fileUrl, fileType);
   } else if (fileType.includes('word') || fileType.includes('document')) {
+    console.log('Loading document viewer...');
     showViewerSection('document');
     document.getElementById('document-download-btn').href = fileUrl;
     document.getElementById('document-download-btn').download = fileName;
   } else {
+    console.log('Loading unsupported viewer...');
     showViewerSection('unsupported');
     document.getElementById('unsupported-download-btn').href = fileUrl;
     document.getElementById('unsupported-download-btn').download = fileName;
@@ -125,14 +132,21 @@ window.showViewerSection = function(section) {
 
 window.loadImageViewer = function(imageUrl, imageName) {
   const viewerImage = document.getElementById('viewer-image');
-  if (!viewerImage) return;
+  if (!viewerImage) {
+    console.error('viewer-image element not found');
+    return;
+  }
+  
+  console.log(`Loading image: ${imageUrl}`);
   
   viewerImage.onload = () => {
+    console.log('Image loaded successfully');
     showViewerSection('image');
   };
   
-  viewerImage.onerror = () => {
-    console.error('Failed to load image');
+  viewerImage.onerror = (error) => {
+    console.error('Failed to load image:', error);
+    console.error('Image URL:', imageUrl);
     showViewerSection('unsupported');
   };
   
@@ -533,6 +547,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const hasPreview = message.preview_url;
       const isEncrypted = message.is_encrypted;
       
+      // Properly escape parameters for onclick handlers
+      const escapedFileName = escapeForJavaScript(message.file_name);
+      const escapedFileUrl = escapeForJavaScript(message.file_url);
+      const escapedFileType = escapeForJavaScript(message.file_type);
+      
       return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
         <div class="file-message">
           ${isImage ? 
@@ -540,7 +559,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <img src="${hasPreview ? message.preview_url : message.file_url}" 
                 alt="${escapeHtml(message.file_name)}" 
                 class="max-w-xs max-h-64 rounded-lg cursor-pointer transition-transform hover:scale-105 shadow-md" 
-                onclick="openFileViewer('${message.file_url}', '${escapeHtml(message.file_name)}', '${message.file_type}', ${message.file_size}, ${canView})">
+                onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})">
               ${canView ? `<div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 rounded-lg transition-all flex items-center justify-center">
                 <svg class="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -549,7 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
               </div>` : ''}
             </div>` :
             `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg transition-all hover:bg-opacity-30 cursor-pointer"
-              onclick="openFileViewer('${message.file_url}', '${escapeHtml(message.file_name)}', '${message.file_type}', ${message.file_size}, ${canView})">
+              onclick="openFileViewer('${escapedFileUrl}', '${escapedFileName}', '${escapedFileType}', ${message.file_size}, ${canView})">
               <div class="file-icon">${fileIcon}</div>
               <div class="flex-1">
                 <div class="file-name font-medium flex items-center">
@@ -1157,5 +1176,19 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = 'index.html';
+  }
+
+  // Helper function to escape strings for use in JavaScript
+  function escapeForJavaScript(str) {
+    if (!str) return '';
+    
+    // Escape special characters that could break JavaScript strings
+    return str
+      .replace(/\\/g, '\\\\')  // Escape backslashes first
+      .replace(/'/g, "\\'")    // Escape single quotes
+      .replace(/"/g, '\\"')    // Escape double quotes
+      .replace(/\n/g, '\\n')   // Escape newlines
+      .replace(/\r/g, '\\r')   // Escape carriage returns
+      .replace(/\t/g, '\\t');  // Escape tabs
   }
 }); 
