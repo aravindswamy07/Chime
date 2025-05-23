@@ -1,27 +1,9 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const supabase = require('./db');
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, '../uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    // Generate unique filename: timestamp-randomstring-originalname
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const extension = path.extname(file.originalname);
-    const name = path.basename(file.originalname, extension);
-    const sanitizedName = name.replace(/[^a-zA-Z0-9]/g, '_');
-    cb(null, `${uniqueSuffix}-${sanitizedName}${extension}`);
-  }
-});
+// Configure multer to store files in memory instead of disk
+const storage = multer.memoryStorage();
 
 // File filter for security
 const fileFilter = (req, file, cb) => {
@@ -63,6 +45,49 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Upload file to Supabase Storage
+const uploadToSupabase = async (file, roomId) => {
+  try {
+    // Generate unique filename
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const extension = path.extname(file.originalname);
+    const name = path.basename(file.originalname, extension);
+    const sanitizedName = name.replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `${roomId}/${uniqueSuffix}-${sanitizedName}${extension}`;
+
+    console.log(`Uploading file to Supabase: ${fileName}`);
+
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage
+      .from('chat-files')
+      .upload(fileName, file.buffer, {
+        contentType: file.mimetype,
+        cacheControl: '3600'
+      });
+
+    if (error) {
+      console.error('Supabase upload error:', error);
+      throw error;
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('chat-files')
+      .getPublicUrl(fileName);
+
+    console.log(`File uploaded successfully: ${urlData.publicUrl}`);
+
+    return {
+      fileName: data.path,
+      publicUrl: urlData.publicUrl
+    };
+
+  } catch (error) {
+    console.error('Error uploading to Supabase:', error);
+    throw error;
+  }
+};
+
 // Helper function to get file type category
 const getFileCategory = (mimetype) => {
   if (mimetype.startsWith('image/')) return 'image';
@@ -86,7 +111,7 @@ const formatFileSize = (bytes) => {
 
 module.exports = {
   upload,
+  uploadToSupabase,
   getFileCategory,
-  formatFileSize,
-  uploadsDir
+  formatFileSize
 }; 

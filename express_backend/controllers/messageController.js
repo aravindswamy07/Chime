@@ -1,6 +1,6 @@
 const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
-const { getFileCategory, formatFileSize } = require('../config/fileUpload');
+const { getFileCategory, formatFileSize, uploadToSupabase } = require('../config/fileUpload');
 
 // Controller for messages
 const messageController = {
@@ -169,10 +169,10 @@ const messageController = {
       
       const file = req.file;
       
-      // Create file URL (relative path for serving)
-      const fileUrl = `/uploads/${file.filename}`;
+      console.log(`Uploading file: ${file.originalname} (${formatFileSize(file.size)})`);
       
-      console.log(`File uploaded: ${file.originalname} (${formatFileSize(file.size)})`);
+      // Upload file to Supabase Storage
+      const uploadResult = await uploadToSupabase(file, roomId);
       
       // Create message with file attachment
       const message = await Message.create({
@@ -182,7 +182,7 @@ const messageController = {
         fileName: file.originalname,
         fileSize: file.size,
         fileType: file.mimetype,
-        fileUrl: fileUrl,
+        fileUrl: uploadResult.publicUrl,
         messageType: 'file'
       });
       

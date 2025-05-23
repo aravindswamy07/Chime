@@ -23,9 +23,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
 // Route middleware
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', chatRoomRoutes);
