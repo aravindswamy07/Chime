@@ -58,14 +58,64 @@
       </div>
       
       <div class="border-t border-gray-200 p-4">
-        <form id="message-form" class="flex">
-          <input type="text" id="message-input" placeholder="Type your message..." 
-            class="flex-1 px-4 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-          <button type="submit" 
-            class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-r-md">
-            Send
-          </button>
+        <form id="message-form" class="flex items-end space-x-3">
+          <div class="flex-1">
+            <input type="text" id="message-input" placeholder="Type your message..." 
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 resize-none">
+          </div>
+          
+          <div class="flex space-x-2">
+            <!-- File upload button -->
+            <button type="button" id="file-upload-button" 
+              class="p-2 text-gray-500 hover:text-indigo-600 transition-colors" title="Upload file">
+              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+            
+            <!-- Send button -->
+            <button type="submit" 
+              class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors">
+              Send
+            </button>
+          </div>
         </form>
+        
+        <!-- Hidden file input -->
+        <input type="file" id="file-input" class="hidden" 
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.json">
+        
+        <!-- File preview area -->
+        <div id="file-preview" class="hidden mt-3 p-3 bg-gray-50 rounded-lg border">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div id="file-icon" class="flex-shrink-0"></div>
+              <div>
+                <div id="file-name" class="text-sm font-medium text-gray-900"></div>
+                <div id="file-size" class="text-xs text-gray-500"></div>
+              </div>
+            </div>
+            <button type="button" id="remove-file" class="text-red-500 hover:text-red-700">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          <!-- Caption input for files -->
+          <div class="mt-3">
+            <input type="text" id="file-caption" placeholder="Add a caption (optional)" 
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+          </div>
+          
+          <!-- Upload button -->
+          <div class="mt-3 flex justify-end">
+            <button type="button" id="upload-file-button" 
+              class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+              Send File
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

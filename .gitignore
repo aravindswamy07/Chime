@@ -33,4 +33,8 @@ yarn-error.log
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# Uploaded files (but keep directory structure)
+express_backend/uploads/*
+!express_backend/uploads/.gitkeep 

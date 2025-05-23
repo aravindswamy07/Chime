@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
+const { getFileCategory, formatFileSize } = require('../config/fileUpload');
 
 // Controller for messages
 const messageController = {
@@ -128,6 +129,87 @@ const messageController = {
       return res.status(500).json({
         success: false,
         message: 'Server error'
+      });
+    }
+  },
+
+  // Upload file and send as message
+  async uploadFile(req, res) {
+    try {
+      const roomId = req.params.roomId;
+      const userId = req.user.id;
+      const { caption } = req.body; // Optional caption for the file
+      
+      console.log(`User ${userId} uploading file to room ${roomId}`);
+      
+      // Check if file was uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No file uploaded'
+        });
+      }
+      
+      // Check if room exists and user is a member
+      const room = await ChatRoom.getById(roomId);
+      if (!room) {
+        return res.status(404).json({
+          success: false,
+          message: 'Room not found'
+        });
+      }
+      
+      const isMember = await ChatRoom.isMember(roomId, userId);
+      if (!isMember) {
+        return res.status(403).json({
+          success: false,
+          message: 'You must be a member of the room to upload files'
+        });
+      }
+      
+      const file = req.file;
+      
+      // Create file URL (relative path for serving)
+      const fileUrl = `/uploads/${file.filename}`;
+      
+      console.log(`File uploaded: ${file.originalname} (${formatFileSize(file.size)})`);
+      
+      // Create message with file attachment
+      const message = await Message.create({
+        roomId,
+        senderId: userId,
+        content: caption || null, // Optional caption
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        fileUrl: fileUrl,
+        messageType: 'file'
+      });
+      
+      if (!message) {
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to save file message'
+        });
+      }
+      
+      console.log(`File message created with ID: ${message.id}`);
+      
+      return res.status(201).json({
+        success: true,
+        message: 'File uploaded successfully',
+        data: {
+          ...message,
+          fileCategory: getFileCategory(file.mimetype),
+          formattedSize: formatFileSize(file.size)
+        }
+      });
+      
+    } catch (error) {
+      console.error('Upload file error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error during file upload'
       });
     }
   }

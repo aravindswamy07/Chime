@@ -181,6 +181,97 @@ html, body {
   color: #991b1b;
 }
 
+/* File upload and drag-and-drop styles */
+.drag-over {
+  background-color: #e0f2fe;
+  border: 2px dashed #0369a1;
+  border-radius: 8px;
+}
+
+.file-message {
+  min-width: 200px;
+}
+
+.file-info {
+  transition: all 0.2s ease;
+}
+
+.file-info:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.download-btn {
+  transition: all 0.2s ease;
+}
+
+.download-btn:hover {
+  transform: scale(1.1);
+}
+
+.image-preview img {
+  transition: all 0.2s ease;
+}
+
+.image-preview img:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.file-caption {
+  margin-top: 8px;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+/* File upload preview styles */
+#file-preview {
+  animation: slideInFromBottom 0.3s ease-out;
+  border: 1px solid #e5e7eb;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+#file-preview .file-icon svg {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+/* Upload progress indicator */
+.upload-progress {
+  width: 100%;
+  height: 4px;
+  background-color: #e5e7eb;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Message container drag state */
+#messages-container.drag-over {
+  background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+  position: relative;
+}
+
+#messages-container.drag-over::before {
+  content: "Drop files here to share";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(59, 130, 246, 0.9);
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 500;
+  pointer-events: none;
+  z-index: 10;
+}
+
 /* Responsive message bubbles */
 @media (max-width: 640px) {
   .message-bubble {
@@ -195,5 +286,14 @@ html, body {
   
   .message-meta {
     font-size: 11px;
+  }
+  
+  .file-message .image-preview img {
+    max-width: 250px;
+    max-height: 200px;
+  }
+  
+  .file-info {
+    padding: 8px 12px;
   }
 } 

@@ -41,6 +41,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const cancelDeleteButton = document.getElementById('cancel-delete-button');
   const deleteRoomNameSpan = document.getElementById('delete-room-name');
 
+  // File upload elements
+  const fileUploadButton = document.getElementById('file-upload-button');
+  const fileInput = document.getElementById('file-input');
+  const filePreview = document.getElementById('file-preview');
+  const fileName = document.getElementById('file-name');
+  const fileSize = document.getElementById('file-size');
+  const fileIcon = document.getElementById('file-icon');
+  const removeFileButton = document.getElementById('remove-file');
+  const fileCaptionInput = document.getElementById('file-caption');
+  const uploadFileButton = document.getElementById('upload-file-button');
+
+  // File upload state
+  let selectedFile = null;
+
   // Display username
   usernameDisplay.textContent = user.username;
 
@@ -67,6 +81,18 @@ document.addEventListener('DOMContentLoaded', () => {
   confirmDeleteButton.addEventListener('click', confirmDeleteRoom);
   cancelDeleteButton.addEventListener('click', closeDeleteRoomModal);
   messageForm.addEventListener('submit', sendMessage);
+
+  // File upload event listeners
+  fileUploadButton.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', handleFileSelect);
+  removeFileButton.addEventListener('click', removeFile);
+  uploadFileButton.addEventListener('click', uploadFile);
+
+  // Drag and drop event listeners
+  messagesContainer.addEventListener('dragover', handleDragOver);
+  messagesContainer.addEventListener('dragenter', handleDragEnter);
+  messagesContainer.addEventListener('dragleave', handleDragLeave);
+  messagesContainer.addEventListener('drop', handleFileDrop);
 
   // Event listener for clicking outside the modal to close it
   window.addEventListener('click', (e) => {
@@ -269,6 +295,44 @@ document.addEventListener('DOMContentLoaded', () => {
     const isTemp = message.id && message.id.toString().startsWith('temp-');
     const statusClass = isTemp ? 'sending' : '';
     
+    // Handle file messages
+    if (message.message_type === 'file' && message.file_name) {
+      const fileIcon = getFileIcon(message.file_type);
+      const isImage = message.file_type && message.file_type.startsWith('image/');
+      
+      return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
+        <div class="file-message">
+          ${isImage ? 
+            `<div class="image-preview mb-2">
+              <img src="${message.file_url}" alt="${escapeHtml(message.file_name)}" 
+                class="max-w-xs max-h-64 rounded-lg cursor-pointer" 
+                onclick="openImageModal('${message.file_url}', '${escapeHtml(message.file_name)}')">
+            </div>` :
+            `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg">
+              <div class="file-icon">${fileIcon}</div>
+              <div class="flex-1">
+                <div class="file-name font-medium">${escapeHtml(message.file_name)}</div>
+                <div class="file-size text-xs opacity-75">${formatFileSize(message.file_size || 0)}</div>
+              </div>
+              <a href="${message.file_url}" download="${message.file_name}" 
+                class="download-btn text-white hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 5a7 7 0 1014 0H5a7 7 0 1114 0z" />
+                </svg>
+              </a>
+            </div>`
+          }
+          ${message.content ? `<div class="file-caption">${escapeHtml(message.content)}</div>` : ''}
+        </div>
+        <div class="message-meta">
+          ${senderName} • ${formatDate(message.created_at)}
+          ${isCurrentUser && isTemp ? '<span class="sending-indicator">⏳</span>' : ''}
+          ${isCurrentUser && !isTemp ? '<span class="sent-indicator">✓</span>' : ''}
+        </div>
+      </div>`;
+    }
+    
+    // Handle text messages
     return `<div class="message-bubble ${bubbleClass} ${statusClass}" data-message-id="${message.id}">
       <div class="message-content">${escapeHtml(message.content)}</div>
       <div class="message-meta">
@@ -586,10 +650,221 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Helper function to format date
-  function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // === FILE UPLOAD FUNCTIONS ===
+
+  // Handle file selection
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) {
+      if (validateFile(file)) {
+        selectedFile = file;
+        showFilePreview(file);
+      }
+    }
+  }
+
+  // Handle drag over
+  function handleDragOver(event) {
+    event.preventDefault();
+    messagesContainer.classList.add('drag-over');
+  }
+
+  // Handle drag enter
+  function handleDragEnter(event) {
+    event.preventDefault();
+    messagesContainer.classList.add('drag-over');
+  }
+
+  // Handle drag leave
+  function handleDragLeave(event) {
+    event.preventDefault();
+    if (!messagesContainer.contains(event.relatedTarget)) {
+      messagesContainer.classList.remove('drag-over');
+    }
+  }
+
+  // Handle file drop
+  function handleFileDrop(event) {
+    event.preventDefault();
+    messagesContainer.classList.remove('drag-over');
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (validateFile(file)) {
+        selectedFile = file;
+        showFilePreview(file);
+      }
+    }
+  }
+
+  // Validate file
+  function validateFile(file) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    
+    if (file.size > maxSize) {
+      alert('File size must be less than 10MB');
+      return false;
+    }
+    
+    const allowedTypes = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'text/plain', 'text/csv',
+      'application/zip', 'application/x-zip-compressed',
+      'application/json'
+    ];
+    
+    if (!allowedTypes.includes(file.type)) {
+      alert('File type not supported. Please upload images, documents, or common file types.');
+      return false;
+    }
+    
+    return true;
+  }
+
+  // Show file preview
+  function showFilePreview(file) {
+    fileName.textContent = file.name;
+    fileSize.textContent = formatFileSize(file.size);
+    fileIcon.innerHTML = getFileIcon(file.type);
+    fileCaptionInput.value = '';
+    filePreview.classList.remove('hidden');
+    
+    // Scroll to show preview
+    filePreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Remove file
+  function removeFile() {
+    selectedFile = null;
+    filePreview.classList.add('hidden');
+    fileInput.value = '';
+  }
+
+  // Upload file
+  async function uploadFile() {
+    if (!selectedFile) {
+      alert('No file selected');
+      return;
+    }
+
+    const caption = fileCaptionInput.value.trim();
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    if (caption) {
+      formData.append('caption', caption);
+    }
+
+    // Show loading state
+    const originalText = uploadFileButton.textContent;
+    uploadFileButton.disabled = true;
+    uploadFileButton.textContent = 'Uploading...';
+
+    try {
+      const response = await fetch(`/api/rooms/${roomId}/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to upload file');
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to upload file');
+      }
+
+      // File uploaded successfully
+      console.log('File uploaded:', data.data);
+      
+      // Clear file preview
+      removeFile();
+      
+      // The file message will appear via the polling system
+      
+    } catch (error) {
+      alert(`Error uploading file: ${error.message}`);
+    } finally {
+      // Reset button state
+      uploadFileButton.disabled = false;
+      uploadFileButton.textContent = originalText;
+    }
+  }
+
+  // Get file icon based on file type
+  function getFileIcon(fileType) {
+    if (fileType.startsWith('image/')) {
+      return `<svg class="w-8 h-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>`;
+    } else if (fileType === 'application/pdf') {
+      return `<svg class="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>`;
+    } else if (fileType.includes('word') || fileType.includes('document')) {
+      return `<svg class="w-8 h-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>`;
+    } else if (fileType.includes('excel') || fileType.includes('spreadsheet')) {
+      return `<svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>`;
+    } else if (fileType.includes('zip')) {
+      return `<svg class="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+      </svg>`;
+    } else {
+      return `<svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>`;
+    }
+  }
+
+  // Format file size
+  function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  // Open image modal for preview
+  function openImageModal(imageUrl, imageName) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50';
+    modal.innerHTML = `
+      <div class="max-w-4xl max-h-4xl p-4">
+        <div class="relative">
+          <img src="${imageUrl}" alt="${imageName}" class="max-w-full max-h-full rounded-lg">
+          <button class="absolute top-2 right-2 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75" onclick="this.parentElement.parentElement.parentElement.remove()">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="text-white text-center mt-2">${imageName}</div>
+      </div>
+    `;
+    
+    // Close on click outside
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+    
+    document.body.appendChild(modal);
   }
 
   // Helper function to escape HTML but preserve emojis
@@ -604,6 +879,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // The div.textContent approach preserves emojis naturally
     // No additional processing needed for emoji support
     return escaped;
+  }
+
+  // Helper function to format date
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
   // Function to handle logout

@@ -25,16 +25,30 @@ class Message {
     if (!supabase) return null;
     
     try {
+      const insertData = {
+        room_id: messageData.roomId,
+        sender_id: messageData.senderId,
+        created_at: new Date().toISOString(),
+        message_type: messageData.messageType || 'text'
+      };
+
+      // Add content if provided (text messages or file with caption)
+      if (messageData.content) {
+        insertData.content = messageData.content;
+      }
+
+      // Add file data if provided
+      if (messageData.fileName) {
+        insertData.file_name = messageData.fileName;
+        insertData.file_size = messageData.fileSize;
+        insertData.file_type = messageData.fileType;
+        insertData.file_url = messageData.fileUrl;
+        insertData.message_type = 'file';
+      }
+
       const { data, error } = await supabase
         .from('messages')
-        .insert([
-          {
-            room_id: messageData.roomId,
-            sender_id: messageData.senderId,
-            content: messageData.content,
-            created_at: new Date().toISOString()
-          }
-        ])
+        .insert([insertData])
         .select('*, users:sender_id(username)')
         .single();
       
