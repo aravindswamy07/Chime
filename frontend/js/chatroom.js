@@ -1195,10 +1195,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Validate file
   function validateFile(file) {
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 120 * 1024 * 1024; // 120MB
     
     if (file.size > maxSize) {
-      alert('File size must be less than 10MB');
+      alert('File size must be less than 120MB');
       return false;
     }
     
@@ -1321,7 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       
       // Configure and send request
-      xhr.timeout = 60000; // 60 second timeout
+      xhr.timeout = 300000; // 5 minute timeout for large files
       xhr.open('POST', `/api/rooms/${roomId}/upload`);
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       xhr.send(formData);
@@ -1467,8 +1467,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Optimized image upload with compression for mobile
   async function optimizeImageForUpload(file) {
     return new Promise((resolve) => {
-      // Skip optimization for non-images or small files
-      if (!file.type.startsWith('image/') || file.size < 500000) {
+      // Skip optimization for non-images or files smaller than 5MB
+      if (!file.type.startsWith('image/') || file.size < 5000000) {
         resolve(file);
         return;
       }
@@ -1478,9 +1478,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const img = new Image();
       
       img.onload = () => {
-        // Calculate optimal dimensions (max 1920x1080 for mobile)
-        const maxWidth = 1920;
-        const maxHeight = 1080;
+        // Calculate optimal dimensions (max 2560x1440 for large files)
+        const maxWidth = 2560;
+        const maxHeight = 1440;
         let { width, height } = img;
         
         if (width > maxWidth || height > maxHeight) {
@@ -1507,7 +1507,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Keep original if compression didn't help
             resolve(file);
           }
-        }, 'image/jpeg', 0.85);
+        }, 'image/jpeg', 0.90); // Higher quality for large files
       };
       
       img.onerror = () => {

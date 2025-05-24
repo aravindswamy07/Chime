@@ -16,33 +16,33 @@ const fileFilter = (req, file, cb) => {
   // Allowed file types with detailed MIME type checking
   const allowedTypes = {
     // Images
-    'image/jpeg': { maxSize: 10 * 1024 * 1024, needsPreview: true },
-    'image/jpg': { maxSize: 10 * 1024 * 1024, needsPreview: true },
-    'image/png': { maxSize: 10 * 1024 * 1024, needsPreview: true },
-    'image/gif': { maxSize: 5 * 1024 * 1024, needsPreview: true },
-    'image/webp': { maxSize: 10 * 1024 * 1024, needsPreview: true },
+    'image/jpeg': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/jpg': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/png': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/gif': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/webp': { maxSize: 120 * 1024 * 1024, needsPreview: true },
     
     // Documents
-    'application/pdf': { maxSize: 50 * 1024 * 1024, needsPreview: true },
-    'application/msword': { maxSize: 25 * 1024 * 1024, needsPreview: true },
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { maxSize: 25 * 1024 * 1024, needsPreview: true },
+    'application/pdf': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/msword': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { maxSize: 120 * 1024 * 1024, needsPreview: true },
     
     // Spreadsheets
-    'application/vnd.ms-excel': { maxSize: 25 * 1024 * 1024, needsPreview: false },
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { maxSize: 25 * 1024 * 1024, needsPreview: false },
+    'application/vnd.ms-excel': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { maxSize: 120 * 1024 * 1024, needsPreview: false },
     
     // Presentations
-    'application/vnd.ms-powerpoint': { maxSize: 50 * 1024 * 1024, needsPreview: false },
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { maxSize: 50 * 1024 * 1024, needsPreview: false },
+    'application/vnd.ms-powerpoint': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { maxSize: 120 * 1024 * 1024, needsPreview: false },
     
     // Text files
-    'text/plain': { maxSize: 5 * 1024 * 1024, needsPreview: false },
-    'text/csv': { maxSize: 10 * 1024 * 1024, needsPreview: false },
-    'application/json': { maxSize: 5 * 1024 * 1024, needsPreview: false },
+    'text/plain': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'text/csv': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/json': { maxSize: 120 * 1024 * 1024, needsPreview: false },
     
     // Archives
-    'application/zip': { maxSize: 100 * 1024 * 1024, needsPreview: false },
-    'application/x-zip-compressed': { maxSize: 100 * 1024 * 1024, needsPreview: false }
+    'application/zip': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/x-zip-compressed': { maxSize: 120 * 1024 * 1024, needsPreview: false }
   };
   
   const fileConfig = allowedTypes[file.mimetype];
@@ -61,7 +61,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB max (will be checked per file type)
+    fileSize: 120 * 1024 * 1024, // 120MB max (will be checked per file type)
     files: 1
   },
   fileFilter: fileFilter
