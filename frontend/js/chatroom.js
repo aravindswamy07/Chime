@@ -1516,7 +1516,8 @@ document.addEventListener('DOMContentLoaded', () => {
         startTime: Date.now(),
         sessionData: sessionData.data.sessionData, // Store encoded session data
         maxParallel,
-        baseTimeout
+        baseTimeout,
+        file: file // Store file reference for potential re-uploads
       };
       
       // Upload chunks with adaptive parallelism
@@ -1581,7 +1582,57 @@ document.addEventListener('DOMContentLoaded', () => {
           
           console.log(`Server synchronization issue: ${receivedChunks}/${expectedChunks} chunks received`);
           
-          // Try multiple retries with exponential backoff
+          // Try to identify and re-upload missing chunks
+          try {
+            // Calculate which chunks might be missing (simple approach)
+            const missingCount = expectedChunks - receivedChunks;
+            console.log(`Attempting to identify and re-upload ${missingCount} missing chunks...`);
+            
+            // For now, try re-uploading the last few chunks that might have failed
+            const missingChunksList = [];
+            for (let i = Math.max(0, expectedChunks - missingCount - 2); i < expectedChunks; i++) {
+              missingChunksList.push(i);
+            }
+            
+            // Also try re-uploading chunks that had HTTP 500 errors earlier
+            // (We'll implement better missing chunk detection later)
+            
+            console.log(`Re-uploading potentially missing chunks: ${missingChunksList.map(i => i + 1).join(', ')}`);
+            
+            await reuploadMissingChunks(uploadSession.file, uploadSession, missingChunksList);
+            
+            // Now try finalization again
+            console.log(`Attempting finalization after re-upload...`);
+            
+            const reuploadResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({ 
+                sessionId,
+                sessionData: uploadSession.sessionData
+              })
+            });
+            
+            if (reuploadResponse.ok) {
+              const reuploadResult = await reuploadResponse.json();
+              if (reuploadResult.success) {
+                console.log(`✅ Finalization successful after re-upload!`);
+                return; // Success!
+              }
+            }
+            
+            // If re-upload approach didn't work, fall back to the original retry logic
+            console.log(`Re-upload approach didn't resolve the issue, trying normal retries...`);
+            
+          } catch (reuploadError) {
+            console.error('Re-upload failed:', reuploadError);
+            console.log('Falling back to normal retry logic...');
+          }
+          
+          // Try multiple retries with exponential backoff (original logic)
           const maxRetries = 3;
           for (let retry = 1; retry <= maxRetries; retry++) {
             const retryDelay = Math.min(5000 * Math.pow(2, retry - 1), 20000); // 5s, 10s, 20s
@@ -1975,6 +2026,94 @@ document.addEventListener('DOMContentLoaded', () => {
     clearInterval(uiInterval);
     
     console.log(`✅ Aggressive fallback verification complete, proceeding to finalization...`);
+  }
+
+  // Re-upload missing chunks to server
+  async function reuploadMissingChunks(file, uploadSession, missingChunksList) {
+    const { sessionId, sessionData, chunkSize } = uploadSession;
+    
+    console.log(`🔧 Re-uploading ${missingChunksList.length} missing chunks: ${missingChunksList.join(', ')}`);
+    
+    // Update UI to show re-upload progress
+    uploadFileButton.innerHTML = `
+      <div class="flex flex-col items-center space-y-2 w-full">
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          <span class="text-sm">Re-uploading ${missingChunksList.length} missing chunks...</span>
+        </div>
+        <div class="text-xs text-gray-500">Chunks: ${missingChunksList.join(', ')}</div>
+      </div>
+    `;
+    
+    let reuploadedCount = 0;
+    const maxRetries = 3;
+    
+    for (const chunkIndex of missingChunksList) {
+      console.log(`Re-uploading chunk ${chunkIndex + 1}/${uploadSession.totalChunks}...`);
+      
+      let success = false;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const start = chunkIndex * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunk = file.slice(start, end);
+          
+          const formData = new FormData();
+          formData.append('chunk', chunk);
+          formData.append('sessionId', sessionId);
+          formData.append('chunkIndex', chunkIndex);
+          formData.append('totalChunks', uploadSession.totalChunks);
+          formData.append('sessionData', sessionData);
+          
+          const response = await Promise.race([
+            fetch(`/api/rooms/${roomId}/upload/chunk`, {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` },
+              body: formData
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Chunk re-upload timeout')), 120000) // 2 min timeout
+            )
+          ]);
+          
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+              console.log(`✅ Successfully re-uploaded chunk ${chunkIndex + 1}`);
+              reuploadedCount++;
+              success = true;
+              break; // Success, move to next chunk
+            }
+          }
+          
+          const errorData = await response.json().catch(() => ({}));
+          console.warn(`Re-upload attempt ${attempt} failed for chunk ${chunkIndex + 1}:`, errorData.message || `HTTP ${response.status}`);
+          
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Progressive delay
+          }
+          
+        } catch (error) {
+          console.error(`Re-upload attempt ${attempt} error for chunk ${chunkIndex + 1}:`, error.message);
+          
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 2000 * attempt)); // Progressive delay
+          }
+        }
+      }
+      
+      if (!success) {
+        throw new Error(`Failed to re-upload chunk ${chunkIndex + 1} after ${maxRetries} attempts`);
+      }
+    }
+    
+    console.log(`✅ Successfully re-uploaded ${reuploadedCount}/${missingChunksList.length} missing chunks`);
+    
+    // Additional delay after re-upload to let server process
+    console.log(`Waiting 5 seconds for server to process re-uploaded chunks...`);
+    await new Promise(resolve => setTimeout(resolve, 5000));
   }
 
   // Update upload progress in UI
