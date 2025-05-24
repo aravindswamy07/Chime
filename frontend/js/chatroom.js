@@ -1524,6 +1524,17 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Verify all chunks are processed on server before finalizing
       console.log(`Verifying all chunks are processed on server...`);
+      
+      // Update UI to show verification in progress
+      uploadFileButton.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>Verifying chunks on server...</span>
+        </div>
+      `;
+      
       await verifyChunksOnServer(uploadSession);
       
       // Show finalization status
@@ -1563,33 +1574,60 @@ document.addEventListener('DOMContentLoaded', () => {
         if (errorData.message && errorData.message.includes('Missing chunks')) {
           console.error('Server reports missing chunks:', errorData.message);
           
-          // Try one more time with additional delay
-          console.log('Attempting finalization retry with additional delay...');
-          await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+          // Extract chunk information from error message
+          const match = errorData.message.match(/received (\d+)\/(\d+)/);
+          const receivedChunks = match ? parseInt(match[1]) : 0;
+          const expectedChunks = match ? parseInt(match[2]) : totalChunks;
           
-          const retryResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ 
-              sessionId,
-              sessionData: uploadSession.sessionData
-            })
-          });
+          console.log(`Server synchronization issue: ${receivedChunks}/${expectedChunks} chunks received`);
           
-          if (!retryResponse.ok) {
-            const retryErrorData = await retryResponse.json().catch(() => ({}));
-            throw new Error(`Finalization failed on retry: ${retryErrorData.message || 'Unknown error'}`);
+          // Try multiple retries with exponential backoff
+          const maxRetries = 3;
+          for (let retry = 1; retry <= maxRetries; retry++) {
+            const retryDelay = Math.min(5000 * Math.pow(2, retry - 1), 20000); // 5s, 10s, 20s
+            console.log(`Attempting finalization retry ${retry}/${maxRetries} with ${retryDelay/1000}s delay...`);
+            
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            
+            try {
+              const retryResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ 
+                  sessionId,
+                  sessionData: uploadSession.sessionData
+                })
+              });
+              
+              if (retryResponse.ok) {
+                const retryResult = await retryResponse.json();
+                if (retryResult.success) {
+                  console.log(`✅ Finalization successful on retry ${retry}!`);
+                  return; // Success! Exit the retry loop
+                } else {
+                  console.warn(`Retry ${retry} returned success=false:`, retryResult.message);
+                }
+              } else {
+                const retryErrorData = await retryResponse.json().catch(() => ({}));
+                console.warn(`Retry ${retry} failed:`, retryErrorData.message || `HTTP ${retryResponse.status}`);
+                
+                if (retry === maxRetries) {
+                  throw new Error(`Finalization failed after ${maxRetries} retries: ${retryErrorData.message || 'Server synchronization issue'}`);
+                }
+              }
+            } catch (error) {
+              console.error(`Retry ${retry} error:`, error);
+              if (retry === maxRetries) {
+                throw new Error(`Finalization failed after ${maxRetries} retries: ${error.message}`);
+              }
+            }
           }
           
-          const retryResult = await retryResponse.json();
-          if (!retryResult.success) {
-            throw new Error(`Finalization retry failed: ${retryResult.message || 'Unknown error'}`);
-          }
-          
-          console.log('✅ Finalization successful on retry!');
+          // If we reach here, all retries failed
+          throw new Error(`Finalization failed after ${maxRetries} retries: Server synchronization issue`);
           
         } else {
           throw new Error(errorData.message || 'Failed to finalize upload');
@@ -1888,13 +1926,55 @@ document.addEventListener('DOMContentLoaded', () => {
   async function fallbackVerification(uploadSession) {
     const { totalChunks } = uploadSession;
     
-    console.log(`Using fallback verification: additional 5 second delay for ${totalChunks} chunks...`);
+    console.log(`Using fallback verification: aggressive delay strategy for ${totalChunks} chunks...`);
     
-    // Additional delay based on number of chunks to ensure server processing
-    const additionalDelay = Math.min(5000 + (totalChunks * 100), 15000); // Max 15 seconds
+    // Much more aggressive delay for large files
+    const baseDelay = 10000; // 10 seconds base
+    const perChunkDelay = Math.max(200, totalChunks > 30 ? 500 : 300); // 500ms per chunk for large files
+    const additionalDelay = Math.min(baseDelay + (totalChunks * perChunkDelay), 45000); // Max 45 seconds
+    
+    console.log(`Waiting ${additionalDelay/1000} seconds for server to fully process ${totalChunks} chunks...`);
+    
+    const startTime = Date.now();
+    
+    // Update UI to show waiting progress
+    const updateUI = () => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, additionalDelay - elapsed);
+      const progress = Math.min(100, ((elapsed / additionalDelay) * 100));
+      
+      uploadFileButton.innerHTML = `
+        <div class="flex flex-col items-center space-y-2 w-full">
+          <div class="flex items-center space-x-2">
+            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6l4 2" />
+            </svg>
+            <span class="text-sm">Server processing ${totalChunks} chunks...</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2">
+            <div class="bg-blue-600 h-2 rounded-full transition-all duration-1000" style="width: ${progress}%"></div>
+          </div>
+          <div class="text-xs text-gray-500">${Math.ceil(remaining/1000)}s remaining</div>
+        </div>
+      `;
+    };
+    
+    // Update UI every second
+    updateUI();
+    const uiInterval = setInterval(updateUI, 1000);
+    
+    // Show progress during the wait
+    const progressInterval = setInterval(() => {
+      const remaining = Math.max(0, additionalDelay - (Date.now() - startTime));
+      console.log(`Server processing wait: ${Math.ceil(remaining/1000)}s remaining...`);
+    }, 5000);
+    
     await new Promise(resolve => setTimeout(resolve, additionalDelay));
     
-    console.log(`✅ Fallback verification complete, proceeding to finalization...`);
+    clearInterval(progressInterval);
+    clearInterval(uiInterval);
+    
+    console.log(`✅ Aggressive fallback verification complete, proceeding to finalization...`);
   }
 
   // Update upload progress in UI
