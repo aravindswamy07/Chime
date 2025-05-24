@@ -1410,10 +1410,10 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.value = '';
   }
 
-  // Chunked upload configuration - Reduced for Vercel compatibility
-  const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB chunks (under Vercel's 4.5MB limit)
-  const MOBILE_CHUNK_SIZE = 1.5 * 1024 * 1024; // 1.5MB for mobile/slow connections
-  const MAX_PARALLEL_UPLOADS = 3;
+  // Chunked upload configuration - Optimized for reliability
+  const CHUNK_SIZE = 1.5 * 1024 * 1024; // 1.5MB chunks (reduced from 3MB for better reliability)
+  const MOBILE_CHUNK_SIZE = 800 * 1024; // 800KB for mobile/slow connections
+  const MAX_PARALLEL_UPLOADS = 2; // Reduced from 3 to prevent overwhelming connections
   
   // Detect if user is on mobile or slow connection
   function isMobileOrSlowConnection() {
@@ -1425,19 +1425,47 @@ document.addEventListener('DOMContentLoaded', () => {
     return /Mobile|Android|iPhone|iPad/.test(navigator.userAgent);
   }
   
+  // Detect very slow connections
+  function isVerySlowConnection() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (connection) {
+      return connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g' ||
+             (connection.downlink && connection.downlink < 1); // Less than 1 Mbps
+    }
+    return false;
+  }
+  
   // Generate unique session ID for resumable uploads
   function generateSessionId() {
     return `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
   
-  // Chunked upload with resumable capability
+  // Chunked upload with resumable capability and adaptive settings
   async function uploadFileInChunks(file, caption, encrypt) {
     const sessionId = generateSessionId();
-    const chunkSize = isMobileOrSlowConnection() ? MOBILE_CHUNK_SIZE : CHUNK_SIZE;
+    
+    // Adaptive settings based on connection quality
+    let chunkSize, maxParallel, baseTimeout;
+    
+    if (isVerySlowConnection()) {
+      chunkSize = 500 * 1024; // 500KB for very slow connections
+      maxParallel = 1;
+      baseTimeout = 180000; // 3 minutes for very slow connections
+    } else if (isMobileOrSlowConnection()) {
+      chunkSize = MOBILE_CHUNK_SIZE; // 800KB
+      maxParallel = 1;
+      baseTimeout = 120000; // 2 minutes for mobile/slow connections
+    } else {
+      chunkSize = CHUNK_SIZE; // 1.5MB
+      maxParallel = MAX_PARALLEL_UPLOADS; // 2
+      baseTimeout = 90000; // 1.5 minutes for normal connections
+    }
+    
     const totalChunks = Math.ceil(file.size / chunkSize);
     const fileName = file.name;
     
-    console.log(`Starting chunked upload: ${fileName}, ${totalChunks} chunks of ${window.formatFileSize(chunkSize)} each`);
+    console.log(`Starting adaptive chunked upload: ${fileName}`);
+    console.log(`Settings: ${totalChunks} chunks of ${window.formatFileSize(chunkSize)} each, ${maxParallel} parallel, ${baseTimeout/1000}s timeout`);
     
     // Update UI for chunked upload
     uploadFileButton.disabled = true;
@@ -1486,10 +1514,12 @@ document.addEventListener('DOMContentLoaded', () => {
         chunkSize,
         uploadedChunks: new Set(),
         startTime: Date.now(),
-        sessionData: sessionData.data.sessionData // Store encoded session data
+        sessionData: sessionData.data.sessionData, // Store encoded session data
+        maxParallel,
+        baseTimeout
       };
       
-      // Upload chunks in parallel (limited concurrency)
+      // Upload chunks with adaptive parallelism
       await uploadChunksInParallel(file, uploadSession);
       
       // Show finalization status
@@ -1504,7 +1534,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       console.log(`All chunks uploaded successfully. Finalizing upload...`);
       
-      // Finalize upload with timeout
+      // Finalize upload with extended timeout
       const finalizeResponse = await Promise.race([
         fetch(`/api/rooms/${roomId}/upload/finalize`, {
           method: 'POST',
@@ -1518,7 +1548,7 @@ document.addEventListener('DOMContentLoaded', () => {
           })
         }),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Finalization timeout')), 60000) // 60 second timeout
+          setTimeout(() => reject(new Error('Finalization timeout')), 120000) // 2 minute timeout for finalization
         )
       ]);
       
@@ -1578,22 +1608,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Upload chunks with parallel processing and progress tracking
+  // Upload chunks with parallel processing, adaptive settings, and progressive retry
   async function uploadChunksInParallel(file, uploadSession) {
-    const { sessionId, totalChunks, chunkSize, sessionData } = uploadSession;
+    const { sessionId, totalChunks, chunkSize, sessionData, maxParallel, baseTimeout } = uploadSession;
     let uploadedChunks = 0;
     const completedChunks = new Set(); // Track completed chunks
     const failedChunks = new Set(); // Track failed chunks
     const maxRetries = 3;
-    const chunkTimeout = 60000; // 60 seconds per chunk
+    let currentParallel = maxParallel; // Start with configured parallel uploads
+    let currentTimeout = baseTimeout; // Start with base timeout
     
-    // Process chunks with limited concurrency and retry logic
+    console.log(`Starting parallel upload with ${currentParallel} concurrent uploads, ${currentTimeout/1000}s timeout`);
+    
+    // Process chunks with adaptive retry logic
     const processChunk = async (chunkIndex, retryCount = 0) => {
       const start = chunkIndex * chunkSize;
       const end = Math.min(start + chunkSize, file.size);
       const chunk = file.slice(start, end);
       
-      console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} (${window.formatFileSize(chunk.size)}) - Attempt ${retryCount + 1}`);
+      // Adaptive timeout: increase timeout on retries
+      const adaptiveTimeout = currentTimeout * (retryCount + 1);
+      
+      console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} (${window.formatFileSize(chunk.size)}) - Attempt ${retryCount + 1} (${adaptiveTimeout/1000}s timeout)`);
       
       try {
         const formData = new FormData();
@@ -1603,7 +1639,7 @@ document.addEventListener('DOMContentLoaded', () => {
         formData.append('totalChunks', totalChunks);
         formData.append('sessionData', sessionData);
         
-        // Add timeout to individual chunk uploads
+        // Add timeout to individual chunk uploads with adaptive timeout
         const uploadPromise = fetch(`/api/rooms/${roomId}/upload/chunk`, {
           method: 'POST',
           headers: {
@@ -1613,7 +1649,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Chunk ${chunkIndex + 1} upload timeout`)), chunkTimeout)
+          setTimeout(() => reject(new Error(`Chunk ${chunkIndex + 1} upload timeout`)), adaptiveTimeout)
         );
         
         const response = await Promise.race([uploadPromise, timeoutPromise]);
@@ -1656,10 +1692,19 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add to failed chunks set
         failedChunks.add(chunkIndex);
         
+        // Progressive retry strategy: reduce parallelism and increase timeout on failures
+        if (retryCount === 0 && failedChunks.size > maxParallel) {
+          // If multiple chunks are failing on first attempt, reduce parallelism
+          currentParallel = Math.max(1, Math.floor(currentParallel / 2));
+          currentTimeout = Math.min(currentTimeout * 1.5, 300000); // Cap at 5 minutes
+          console.log(`🔧 Adapting strategy: reducing to ${currentParallel} parallel uploads, ${currentTimeout/1000}s timeout`);
+        }
+        
         // Retry logic
         if (retryCount < maxRetries) {
-          console.log(`🔄 Retrying chunk ${chunkIndex + 1} (attempt ${retryCount + 2}/${maxRetries + 1})`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+          const backoffDelay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Exponential backoff, max 8s
+          console.log(`🔄 Retrying chunk ${chunkIndex + 1} in ${backoffDelay/1000}s (attempt ${retryCount + 2}/${maxRetries + 1})`);
+          await new Promise(resolve => setTimeout(resolve, backoffDelay));
           return await processChunk(chunkIndex, retryCount + 1);
         } else {
           console.error(`💥 Chunk ${chunkIndex + 1} failed permanently after ${maxRetries + 1} attempts`);
@@ -1668,8 +1713,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     };
     
-    // Execute chunks with controlled concurrency
-    const executeWithConcurrency = async (totalChunks, maxConcurrency) => {
+    // Execute chunks with adaptive concurrency
+    const executeWithAdaptiveConcurrency = async (totalChunks) => {
       const executing = [];
       const chunkPromises = [];
       
@@ -1680,7 +1725,8 @@ document.addEventListener('DOMContentLoaded', () => {
           executing.splice(executing.indexOf(chunkPromise), 1);
         }));
         
-        if (executing.length >= maxConcurrency) {
+        // Use current parallel setting (may be adapted during upload)
+        if (executing.length >= currentParallel) {
           await Promise.race(executing);
         }
       }
@@ -1689,7 +1735,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await Promise.all(chunkPromises);
     };
     
-    await executeWithConcurrency(totalChunks, MAX_PARALLEL_UPLOADS);
+    await executeWithAdaptiveConcurrency(totalChunks);
     
     // Verify all chunks are uploaded before returning
     if (uploadedChunks !== totalChunks) {
@@ -1931,7 +1977,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 100);
   }
 
-  // Upload file with chunked upload system
+  // Upload file with adaptive upload system
   async function uploadFile() {
     if (!selectedFile) {
       alert('No file selected');
@@ -1961,13 +2007,25 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`File compressed: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)} (${savings}% reduction)`);
       }
       
-      // Use chunked upload for files larger than 5MB (as requested by user)
-      if (fileToUpload.size > 5 * 1024 * 1024) {
-        console.log(`Using chunked upload for large file: ${window.formatFileSize(fileToUpload.size)}`);
+      // Adaptive decision for upload method based on file size and connection
+      let useChunkedUpload = false;
+      let threshold;
+      
+      if (isVerySlowConnection()) {
+        threshold = 2 * 1024 * 1024; // 2MB threshold for very slow connections
+      } else if (isMobileOrSlowConnection()) {
+        threshold = 3 * 1024 * 1024; // 3MB threshold for mobile/slow connections
+      } else {
+        threshold = 5 * 1024 * 1024; // 5MB threshold for normal connections
+      }
+      
+      useChunkedUpload = fileToUpload.size > threshold;
+      
+      if (useChunkedUpload) {
+        console.log(`Using chunked upload for file: ${window.formatFileSize(fileToUpload.size)} (threshold: ${window.formatFileSize(threshold)})`);
         await uploadFileInChunks(fileToUpload, caption, encrypt);
       } else {
-        // Use traditional upload for small files (≤5MB)
-        console.log(`Using traditional upload for small file: ${window.formatFileSize(fileToUpload.size)}`);
+        console.log(`Using traditional upload for file: ${window.formatFileSize(fileToUpload.size)} (threshold: ${window.formatFileSize(threshold)})`);
         await uploadFileTraditional(fileToUpload, caption, encrypt);
       }
       
@@ -1980,12 +2038,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Traditional upload for small files
+  // Traditional upload for small files with adaptive timeout
   async function uploadFileTraditional(file, caption, encrypt) {
     const originalFileName = file.name;
     
+    // Adaptive timeout based on connection and file size
+    let uploadTimeout;
+    const fileSizeMB = file.size / (1024 * 1024);
+    
+    if (isVerySlowConnection()) {
+      uploadTimeout = Math.max(120000, fileSizeMB * 60000); // At least 2 minutes, or 1 minute per MB
+    } else if (isMobileOrSlowConnection()) {
+      uploadTimeout = Math.max(90000, fileSizeMB * 30000); // At least 1.5 minutes, or 30s per MB
+    } else {
+      uploadTimeout = Math.max(60000, fileSizeMB * 20000); // At least 1 minute, or 20s per MB
+    }
+    
+    // Cap the timeout at reasonable limits
+    uploadTimeout = Math.min(uploadTimeout, 300000); // Max 5 minutes
+    
     try {
-      console.log(`Starting traditional upload: ${originalFileName} (${window.formatFileSize(file.size)})`);
+      console.log(`Starting traditional upload: ${originalFileName} (${window.formatFileSize(file.size)}) with ${uploadTimeout/1000}s timeout`);
       
       const formData = new FormData();
       formData.append('file', file);
@@ -2003,11 +2076,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
       console.log(`Sending file to: /api/rooms/${roomId}/upload`);
 
-      const response = await fetch(`/api/rooms/${roomId}/upload`, {
+      // Create upload promise with timeout
+      const uploadPromise = fetch(`/api/rooms/${roomId}/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timeout')), uploadTimeout)
+      );
+
+      const response = await Promise.race([uploadPromise, timeoutPromise]);
 
       console.log(`Upload response status: ${response.status}`);
 
@@ -2023,7 +2103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Handle specific error types
         if (response.status === 413) {
-          throw new Error('File too large for traditional upload. Try a smaller file.');
+          throw new Error('File too large for traditional upload. Try using chunked upload or a smaller file.');
         } else if (response.status === 500) {
           throw new Error(`Server error during upload: ${errorData.message || 'Internal server error'}. Please try again.`);
         } else if (response.status === 403) {
@@ -2059,6 +2139,8 @@ document.addEventListener('DOMContentLoaded', () => {
       let userMessage = error.message;
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
         userMessage = 'Network error. Please check your connection and try again.';
+      } else if (error.message.includes('Upload timeout')) {
+        userMessage = `Upload timed out after ${uploadTimeout/1000} seconds. Please try again or use a smaller file.`;
       } else if (error.message.includes('Server error')) {
         userMessage = `${error.message} This might be a temporary server issue.`;
       }
