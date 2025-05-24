@@ -57,14 +57,33 @@ const fileFilter = (req, file, cb) => {
   cb(null, true);
 };
 
-// Configure multer with enhanced security
+// Configure multer with enhanced security and chunked upload support
 const upload = multer({
   storage: storage,
   limits: {
     fileSize: 120 * 1024 * 1024, // 120MB max (will be checked per file type)
-    files: 1
+    files: 1,
+    fieldSize: 10 * 1024 * 1024, // 10MB for individual form fields (chunks)
   },
   fileFilter: fileFilter
+});
+
+// Separate configuration for chunk uploads
+const chunkUpload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max per chunk (larger than our 5MB chunks for safety)
+    files: 1,
+    fieldSize: 1024 * 1024, // 1MB for metadata fields
+  },
+  fileFilter: (req, file, cb) => {
+    // Less strict validation for chunks - just check basic security
+    if (file.fieldname === 'chunk') {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid chunk upload'), false);
+    }
+  }
 });
 
 // Encrypt file buffer
@@ -274,6 +293,7 @@ const supportsInlineViewing = (mimetype) => {
 
 module.exports = {
   upload,
+  chunkUpload,
   uploadToSupabase,
   getFileCategory,
   formatFileSize,

@@ -542,11 +542,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // File viewer event listeners
   closeViewerModal.addEventListener('click', window.closeFileViewer);
 
-  // Drag and drop event listeners
+  // Enhanced drag and drop event listeners with instant preview
   messagesContainer.addEventListener('dragover', handleDragOver);
   messagesContainer.addEventListener('dragenter', handleDragEnter);
   messagesContainer.addEventListener('dragleave', handleDragLeave);
   messagesContainer.addEventListener('drop', handleFileDrop);
+  
+  // Add support for the entire chat area
+  const chatArea = document.querySelector('.chat-container') || document.body;
+  chatArea.addEventListener('dragover', handleDragOver);
+  chatArea.addEventListener('dragenter', handleDragEnter);
+  chatArea.addEventListener('dragleave', handleDragLeave);
+  chatArea.addEventListener('drop', handleFileDrop);
 
   // Event listener for clicking outside the modal to close it
   window.addEventListener('click', (e) => {
@@ -1158,38 +1165,201 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Handle drag over
+  // Enhanced drag over
   function handleDragOver(event) {
     event.preventDefault();
-    messagesContainer.classList.add('drag-over');
+    event.dataTransfer.dropEffect = 'copy';
+    
+    // Add visual feedback
+    document.body.classList.add('drag-active');
+    showDragOverlay();
   }
 
-  // Handle drag enter
+  // Enhanced drag enter
   function handleDragEnter(event) {
     event.preventDefault();
-    messagesContainer.classList.add('drag-over');
+    document.body.classList.add('drag-active');
+    showDragOverlay();
   }
 
-  // Handle drag leave
+  // Enhanced drag leave
   function handleDragLeave(event) {
     event.preventDefault();
-    if (!messagesContainer.contains(event.relatedTarget)) {
-      messagesContainer.classList.remove('drag-over');
+    
+    // Only hide if leaving the entire window
+    if (!event.relatedTarget || event.relatedTarget.nodeName === 'HTML') {
+      document.body.classList.remove('drag-active');
+      hideDragOverlay();
     }
   }
 
-  // Handle file drop
+  // Enhanced file drop with instant preview
   function handleFileDrop(event) {
     event.preventDefault();
-    messagesContainer.classList.remove('drag-over');
+    document.body.classList.remove('drag-active');
+    hideDragOverlay();
     
     const files = event.dataTransfer.files;
     if (files.length > 0) {
       const file = files[0];
+      
+      // Show instant preview while validating
+      showInstantFilePreview(file);
+      
       if (validateFile(file)) {
         selectedFile = file;
         showFilePreview(file);
+        
+        // Auto-optimize and show compression info
+        if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+          showCompressionPreview(file);
+        }
+        
+        // Show chunked upload indicator for large files
+        if (file.size > 5 * 1024 * 1024) {
+          showChunkedUploadInfo(file);
+        }
+      } else {
+        hideInstantFilePreview();
       }
+    }
+  }
+  
+  // Show drag overlay
+  function showDragOverlay() {
+    let overlay = document.getElementById('drag-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'drag-overlay';
+      overlay.className = 'drag-overlay';
+      overlay.innerHTML = `
+        <div class="drag-overlay-content">
+          <div class="drag-icon">
+            <svg class="w-16 h-16 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-700 mb-2">Drop your file here</h3>
+          <p class="text-gray-500">Supports images, documents, and files up to 120MB</p>
+          <div class="connection-info mt-4">
+            <div class="connection-indicator ${isMobileOrSlowConnection() ? 'slow' : 'fast'}">
+              <span class="signal-bars">
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+                <div class="signal-bar"></div>
+              </span>
+              ${isMobileOrSlowConnection() ? 'Mobile optimized chunks' : 'Fast parallel upload'}
+            </div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+    overlay.style.display = 'flex';
+  }
+  
+  // Hide drag overlay
+  function hideDragOverlay() {
+    const overlay = document.getElementById('drag-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+  }
+  
+  // Show instant file preview while processing
+  function showInstantFilePreview(file) {
+    let instantPreview = document.getElementById('instant-preview');
+    if (!instantPreview) {
+      instantPreview = document.createElement('div');
+      instantPreview.id = 'instant-preview';
+      instantPreview.className = 'instant-preview';
+      filePreview.parentNode.insertBefore(instantPreview, filePreview);
+    }
+    
+    const isImage = file.type.startsWith('image/');
+    const fileIcon = window.getFileIcon(file.type);
+    
+    instantPreview.innerHTML = `
+      <div class="instant-preview-content">
+        <div class="instant-preview-header">
+          <div class="file-icon">${fileIcon}</div>
+          <div class="file-info">
+            <div class="file-name">${escapeHtml(file.name)}</div>
+            <div class="file-size">${window.formatFileSize(file.size)}</div>
+          </div>
+          <div class="processing-indicator">
+            <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </div>
+        </div>
+        ${isImage ? `<div class="instant-image-preview" id="instant-image-${Date.now()}"></div>` : ''}
+      </div>
+    `;
+    
+    // Load image preview if it's an image
+    if (isImage) {
+      const imageContainer = instantPreview.querySelector('.instant-image-preview');
+      const img = document.createElement('img');
+      img.className = 'instant-preview-image';
+      img.onload = () => {
+        imageContainer.appendChild(img);
+        imageContainer.classList.add('loaded');
+      };
+      img.src = URL.createObjectURL(file);
+    }
+    
+    instantPreview.style.display = 'block';
+  }
+  
+  // Hide instant preview
+  function hideInstantFilePreview() {
+    const instantPreview = document.getElementById('instant-preview');
+    if (instantPreview) {
+      instantPreview.style.display = 'none';
+    }
+  }
+  
+  // Show compression preview info
+  function showCompressionPreview(file) {
+    setTimeout(async () => {
+      const compressed = await compressImage(file);
+      if (compressed !== file) {
+        const savings = ((file.size - compressed.size) / file.size * 100).toFixed(1);
+        const optimizationInfo = document.createElement('div');
+        optimizationInfo.className = 'upload-optimization compression';
+        optimizationInfo.innerHTML = `
+          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          Image will be compressed (~${savings}% smaller)
+        `;
+        
+        const filePreviewElement = document.getElementById('file-preview');
+        if (filePreviewElement && !filePreviewElement.querySelector('.upload-optimization')) {
+          filePreviewElement.appendChild(optimizationInfo);
+        }
+      }
+    }, 500);
+  }
+  
+  // Show chunked upload info
+  function showChunkedUploadInfo(file) {
+    const chunkSize = isMobileOrSlowConnection() ? MOBILE_CHUNK_SIZE : CHUNK_SIZE;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    
+    const chunkedInfo = document.createElement('div');
+    chunkedInfo.className = 'upload-optimization chunked';
+    chunkedInfo.innerHTML = `
+      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+      </svg>
+      Will upload in ${totalChunks} chunks (resumable)
+    `;
+    
+    const filePreviewElement = document.getElementById('file-preview');
+    if (filePreviewElement && !filePreviewElement.querySelector('.upload-optimization.chunked')) {
+      filePreviewElement.appendChild(chunkedInfo);
     }
   }
 
@@ -1240,136 +1410,236 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.value = '';
   }
 
-  // Upload file with mobile optimization
-  async function uploadFile() {
-    if (!selectedFile) {
-      alert('No file selected');
-      return;
+  // Chunked upload configuration
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+  const MOBILE_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB for mobile/slow connections
+  const MAX_PARALLEL_UPLOADS = 3;
+  
+  // Detect if user is on mobile or slow connection
+  function isMobileOrSlowConnection() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (connection) {
+      return connection.effectiveType === 'slow-2g' || connection.effectiveType === '2g' || 
+             connection.effectiveType === '3g' || /Mobile|Android|iPhone|iPad/.test(navigator.userAgent);
     }
-
-    const caption = fileCaptionInput.value.trim();
-    const encrypt = encryptFileCheckbox.checked;
-    const originalFileName = selectedFile.name;
+    return /Mobile|Android|iPhone|iPad/.test(navigator.userAgent);
+  }
+  
+  // Generate unique session ID for resumable uploads
+  function generateSessionId() {
+    return `upload-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+  
+  // Chunked upload with resumable capability
+  async function uploadFileInChunks(file, caption, encrypt) {
+    const sessionId = generateSessionId();
+    const chunkSize = isMobileOrSlowConnection() ? MOBILE_CHUNK_SIZE : CHUNK_SIZE;
+    const totalChunks = Math.ceil(file.size / chunkSize);
+    const fileName = file.name;
     
-    // Show loading state with progress
-    const originalText = uploadFileButton.textContent;
+    console.log(`Starting chunked upload: ${fileName}, ${totalChunks} chunks of ${window.formatFileSize(chunkSize)} each`);
+    
+    // Store upload session info
+    const uploadSession = {
+      sessionId,
+      fileName,
+      fileSize: file.size,
+      totalChunks,
+      chunkSize,
+      uploadedChunks: new Set(),
+      startTime: Date.now()
+    };
+    
+    // Update UI for chunked upload
     uploadFileButton.disabled = true;
-    uploadFileButton.textContent = 'Optimizing...';
-
+    uploadFileButton.innerHTML = `
+      <div class="flex items-center space-x-2">
+        <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        <span>Preparing upload...</span>
+      </div>
+    `;
+    
     try {
-      // Optimize image for mobile if applicable
-      let fileToUpload = selectedFile;
-      
-      if (selectedFile.type.startsWith('image/')) {
-        uploadFileButton.textContent = 'Compressing image...';
-        fileToUpload = await optimizeImageForUpload(selectedFile);
-        
-        if (fileToUpload !== selectedFile) {
-          console.log(`Image optimized: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)}`);
-        }
-      }
-      
-      uploadFileButton.textContent = 'Uploading...';
-      
-      const formData = new FormData();
-      formData.append('file', fileToUpload);
-      if (caption) {
-        formData.append('caption', caption);
-      }
-      if (encrypt) {
-        formData.append('encrypt', 'true');
-      }
-
-      // Create XMLHttpRequest for upload progress
-      const xhr = new XMLHttpRequest();
-      
-      // Track upload progress
-      xhr.upload.addEventListener('progress', (e) => {
-        if (e.lengthComputable) {
-          const percentComplete = Math.round((e.loaded / e.total) * 100);
-          uploadFileButton.textContent = `Uploading... ${percentComplete}%`;
-        }
+      // Create upload session on server
+      const sessionResponse = await fetch(`/api/rooms/${roomId}/upload/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          sessionId,
+          fileName,
+          fileSize: file.size,
+          fileType: file.type,
+          totalChunks,
+          chunkSize,
+          caption: caption || '',
+          encrypt: encrypt || false
+        })
       });
       
-      // Handle response
-      const uploadPromise = new Promise((resolve, reject) => {
-        xhr.onload = () => {
-          if (xhr.status === 200 || xhr.status === 201) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              resolve(response);
-            } catch (e) {
-              reject(new Error('Invalid response format'));
-            }
-          } else {
-            try {
-              const errorData = JSON.parse(xhr.responseText);
-              reject(new Error(errorData.message || 'Upload failed'));
-            } catch (e) {
-              reject(new Error(`Upload failed with status ${xhr.status}`));
-            }
-          }
-        };
-        
-        xhr.onerror = () => {
-          reject(new Error('Network error during upload'));
-        };
-        
-        xhr.ontimeout = () => {
-          reject(new Error('Upload timed out'));
-        };
+      if (!sessionResponse.ok) {
+        throw new Error('Failed to create upload session');
+      }
+      
+      const sessionData = await sessionResponse.json();
+      console.log('Upload session created:', sessionData);
+      
+      // Upload chunks in parallel (limited concurrency)
+      await uploadChunksInParallel(file, uploadSession);
+      
+      // Finalize upload
+      const finalizeResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ sessionId })
       });
       
-      // Configure and send request
-      xhr.timeout = 300000; // 5 minute timeout for large files
-      xhr.open('POST', `/api/rooms/${roomId}/upload`);
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.send(formData);
-      
-      const data = await uploadPromise;
-
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to upload file');
+      if (!finalizeResponse.ok) {
+        throw new Error('Failed to finalize upload');
       }
-
-      // File uploaded successfully
-      console.log('Enhanced file uploaded:', data.data);
+      
+      const result = await finalizeResponse.json();
+      
+      if (!result.success) {
+        throw new Error(result.message || 'Upload finalization failed');
+      }
+      
+      // Success!
+      const uploadTime = (Date.now() - uploadSession.startTime) / 1000;
+      console.log(`Upload completed in ${uploadTime.toFixed(1)}s`);
       
       // Clear file preview
       removeFile();
       
-      // Show success notification with file size info
-      const sizeInfo = fileToUpload !== selectedFile ? 
-        ` (optimized from ${window.formatFileSize(selectedFile.size)})` : '';
-      showSuccessMessage(`File "${originalFileName}" uploaded successfully!${sizeInfo}`);
+      // Show success notification
+      showSuccessMessage(`File "${fileName}" uploaded successfully! (${uploadTime.toFixed(1)}s)`);
       
-      // Add haptic feedback on mobile if available
+      // Add haptic feedback
       if (navigator.vibrate) {
         navigator.vibrate(50);
       }
       
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Chunked upload error:', error);
       
-      // Show user-friendly error messages
+      // Show user-friendly error
       let errorMessage = error.message;
       if (error.message.includes('Network error')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      } else if (error.message.includes('timed out')) {
-        errorMessage = 'Upload timed out. Please try again with a smaller file.';
+        errorMessage = 'Network error. Upload will resume when connection is restored.';
+      } else if (error.message.includes('session')) {
+        errorMessage = 'Upload session error. Please try again.';
       }
       
-      alert(`Error uploading file: ${errorMessage}`);
+      alert(`Upload failed: ${errorMessage}`);
       
-      // Add error haptic feedback on mobile if available
+      // Error haptic feedback
       if (navigator.vibrate) {
         navigator.vibrate([100, 50, 100]);
       }
     } finally {
-      // Reset button state
+      // Reset upload button
       uploadFileButton.disabled = false;
-      uploadFileButton.textContent = originalText;
+      uploadFileButton.innerHTML = 'Send File';
     }
+  }
+  
+  // Upload chunks with parallel processing and progress tracking
+  async function uploadChunksInParallel(file, uploadSession) {
+    const { sessionId, totalChunks, chunkSize } = uploadSession;
+    let uploadedChunks = 0;
+    
+    // Create chunk upload tasks
+    const chunkTasks = [];
+    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+      chunkTasks.push(() => uploadChunk(file, uploadSession, chunkIndex));
+    }
+    
+    // Process chunks with limited concurrency
+    const processChunk = async (taskIndex) => {
+      const chunkIndex = taskIndex;
+      const start = chunkIndex * chunkSize;
+      const end = Math.min(start + chunkSize, file.size);
+      const chunk = file.slice(start, end);
+      
+      console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} (${window.formatFileSize(chunk.size)})`);
+      
+      const formData = new FormData();
+      formData.append('chunk', chunk);
+      formData.append('sessionId', sessionId);
+      formData.append('chunkIndex', chunkIndex);
+      formData.append('totalChunks', totalChunks);
+      
+      const response = await fetch(`/api/rooms/${roomId}/upload/chunk`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Chunk ${chunkIndex + 1} upload failed`);
+      }
+      
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || `Chunk ${chunkIndex + 1} processing failed`);
+      }
+      
+      // Update progress
+      uploadedChunks++;
+      const progress = Math.round((uploadedChunks / totalChunks) * 100);
+      updateUploadProgress(progress, uploadedChunks, totalChunks);
+      
+      uploadSession.uploadedChunks.add(chunkIndex);
+      console.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully (${progress}%)`);
+    };
+    
+    // Execute chunks with controlled concurrency
+    const executeWithConcurrency = async (tasks, maxConcurrency) => {
+      const executing = [];
+      
+      for (let i = 0; i < tasks.length; i++) {
+        const promise = processChunk(i).then(() => {
+          executing.splice(executing.indexOf(promise), 1);
+        });
+        executing.push(promise);
+        
+        if (executing.length >= maxConcurrency) {
+          await Promise.race(executing);
+        }
+      }
+      
+      await Promise.all(executing);
+    };
+    
+    await executeWithConcurrency(chunkTasks, MAX_PARALLEL_UPLOADS);
+  }
+  
+  // Update upload progress in UI
+  function updateUploadProgress(percentage, uploaded, total) {
+    const progressText = `Uploading... ${uploaded}/${total} chunks (${percentage}%)`;
+    uploadFileButton.innerHTML = `
+      <div class="flex flex-col items-center space-y-1 w-full">
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span class="text-sm">${progressText}</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div class="bg-green-600 h-2 rounded-full transition-all duration-300" style="width: ${percentage}%"></div>
+        </div>
+      </div>
+    `;
   }
 
   // Check if file supports inline viewing
@@ -1570,5 +1840,156 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       setupLazyLoading();
     }, 100);
+  }
+
+  // Upload file with chunked upload system
+  async function uploadFile() {
+    if (!selectedFile) {
+      alert('No file selected');
+      return;
+    }
+
+    const caption = fileCaptionInput.value.trim();
+    const encrypt = encryptFileCheckbox.checked;
+    let fileToUpload = selectedFile;
+    
+    try {
+      // Apply client-side optimization/compression
+      uploadFileButton.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>Optimizing file...</span>
+        </div>
+      `;
+      
+      // Compress file if applicable
+      fileToUpload = await compressFileIfNeeded(selectedFile);
+      
+      if (fileToUpload !== selectedFile) {
+        const savings = ((selectedFile.size - fileToUpload.size) / selectedFile.size * 100).toFixed(1);
+        console.log(`File compressed: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)} (${savings}% reduction)`);
+      }
+      
+      // Use chunked upload for files larger than 5MB or if user prefers
+      if (fileToUpload.size > 5 * 1024 * 1024) {
+        await uploadFileInChunks(fileToUpload, caption, encrypt);
+      } else {
+        // Use traditional upload for small files
+        await uploadFileTraditional(fileToUpload, caption, encrypt);
+      }
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      uploadFileButton.disabled = false;
+      uploadFileButton.innerHTML = 'Send File';
+      
+      // Don't show alert here as it's handled in individual upload functions
+    }
+  }
+  
+  // Traditional upload for small files
+  async function uploadFileTraditional(file, caption, encrypt) {
+    const originalFileName = file.name;
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (caption) formData.append('caption', caption);
+      if (encrypt) formData.append('encrypt', 'true');
+
+      uploadFileButton.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>Uploading...</span>
+        </div>
+      `;
+
+      const response = await fetch(`/api/rooms/${roomId}/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Upload failed');
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Upload failed');
+      }
+
+      // Success
+      removeFile();
+      showSuccessMessage(`File "${originalFileName}" uploaded successfully!`);
+      
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+
+    } finally {
+      uploadFileButton.disabled = false;
+      uploadFileButton.innerHTML = 'Send File';
+    }
+  }
+  
+  // Client-side file compression
+  async function compressFileIfNeeded(file) {
+    // Compress images
+    if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+      return await compressImage(file);
+    }
+    
+    // For other file types, return as-is (could add ZIP compression here)
+    return file;
+  }
+  
+  // Image compression
+  async function compressImage(file) {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      
+      img.onload = () => {
+        // Calculate dimensions
+        let { width, height } = img;
+        const maxDimension = 2048;
+        
+        if (width > maxDimension || height > maxDimension) {
+          const ratio = Math.min(maxDimension / width, maxDimension / height);
+          width *= ratio;
+          height *= ratio;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        canvas.toBlob((blob) => {
+          if (blob && blob.size < file.size * 0.9) { // Only use if 10%+ reduction
+            const compressedFile = new File([blob], file.name, {
+              type: 'image/jpeg',
+              lastModified: Date.now()
+            });
+            resolve(compressedFile);
+          } else {
+            resolve(file);
+          }
+        }, 'image/jpeg', 0.85);
+      };
+      
+      img.onerror = () => {
+        // If optimization fails, use original
+        resolve(file);
+      };
+      
+      img.src = URL.createObjectURL(file);
+    });
   }
 }); 

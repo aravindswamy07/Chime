@@ -2,6 +2,10 @@ const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
 const { getFileCategory, formatFileSize, uploadToSupabase, supportsInlineViewing } = require('../config/fileUpload');
 
+// Store for upload sessions (in production, use Redis or database)
+const uploadSessions = new Map();
+const uploadChunks = new Map();
+
 // Controller for messages
 const messageController = {
   // Get messages for a specific chat room
@@ -225,7 +229,294 @@ const messageController = {
         message: error.message || 'Server error during file upload'
       });
     }
+  },
+
+  // Create upload session for chunked uploads
+  async createUploadSession(req, res) {
+    try {
+      const { sessionId, fileName, fileSize, fileType, totalChunks, chunkSize, caption, encrypt } = req.body;
+      const { roomId } = req.params;
+      const userId = req.user.id;
+
+      console.log(`Creating upload session: ${sessionId} for ${fileName} (${fileSize} bytes, ${totalChunks} chunks)`);
+
+      // Validate session data
+      if (!sessionId || !fileName || !fileSize || !totalChunks) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing required session parameters'
+        });
+      }
+
+      // Check if user has access to room
+      const roomCheck = await supabase
+        .from('room_members')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('user_id', userId)
+        .single();
+
+      if (roomCheck.error && roomCheck.error.code !== 'PGRST116') {
+        return res.status(500).json({
+          success: false,
+          message: 'Database error checking room access'
+        });
+      }
+
+      if (!roomCheck.data) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied to this room'
+        });
+      }
+
+      // Create session
+      const session = {
+        sessionId,
+        roomId,
+        userId,
+        fileName,
+        fileSize,
+        fileType,
+        totalChunks,
+        chunkSize,
+        caption,
+        encrypt,
+        createdAt: new Date(),
+        receivedChunks: new Set(),
+        status: 'active'
+      };
+
+      uploadSessions.set(sessionId, session);
+      uploadChunks.set(sessionId, new Map());
+
+      res.json({
+        success: true,
+        data: {
+          sessionId,
+          totalChunks,
+          chunkSize
+        }
+      });
+
+    } catch (error) {
+      console.error('Error creating upload session:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create upload session'
+      });
+    }
+  },
+
+  // Upload chunk
+  async uploadChunk(req, res) {
+    try {
+      const { sessionId, chunkIndex, totalChunks } = req.body;
+      const chunk = req.file;
+      const { roomId } = req.params;
+
+      if (!chunk || !sessionId || chunkIndex === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing chunk data or session ID'
+        });
+      }
+
+      const session = uploadSessions.get(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Upload session not found'
+        });
+      }
+
+      if (session.roomId !== roomId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Session room mismatch'
+        });
+      }
+
+      const chunkIndexNum = parseInt(chunkIndex);
+      console.log(`Received chunk ${chunkIndexNum + 1}/${session.totalChunks} for session ${sessionId}`);
+
+      // Store chunk
+      const chunks = uploadChunks.get(sessionId);
+      chunks.set(chunkIndexNum, chunk.buffer);
+      session.receivedChunks.add(chunkIndexNum);
+
+      // Clean up old sessions (older than 1 hour)
+      cleanupOldSessions();
+
+      res.json({
+        success: true,
+        data: {
+          chunkIndex: chunkIndexNum,
+          received: session.receivedChunks.size,
+          total: session.totalChunks
+        }
+      });
+
+    } catch (error) {
+      console.error('Error uploading chunk:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to upload chunk'
+      });
+    }
+  },
+
+  // Finalize chunked upload
+  async finalizeUpload(req, res) {
+    try {
+      const { sessionId } = req.body;
+      const { roomId } = req.params;
+
+      const session = uploadSessions.get(sessionId);
+      if (!session) {
+        return res.status(404).json({
+          success: false,
+          message: 'Upload session not found'
+        });
+      }
+
+      if (session.roomId !== roomId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Session room mismatch'
+        });
+      }
+
+      // Check if all chunks received
+      if (session.receivedChunks.size !== session.totalChunks) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing chunks: received ${session.receivedChunks.size}/${session.totalChunks}`
+        });
+      }
+
+      console.log(`Finalizing upload for session ${sessionId}: ${session.fileName}`);
+
+      // Reassemble file from chunks
+      const chunks = uploadChunks.get(sessionId);
+      const sortedChunks = [];
+      
+      for (let i = 0; i < session.totalChunks; i++) {
+        const chunk = chunks.get(i);
+        if (!chunk) {
+          throw new Error(`Missing chunk ${i}`);
+        }
+        sortedChunks.push(chunk);
+      }
+
+      const completeFile = Buffer.concat(sortedChunks);
+      console.log(`Reassembled file: ${completeFile.length} bytes`);
+
+      // Create a file object compatible with existing upload logic
+      const fileObject = {
+        originalname: session.fileName,
+        buffer: completeFile,
+        size: completeFile.length,
+        mimetype: session.fileType,
+        fileConfig: getFileConfigForType(session.fileType)
+      };
+
+      // Use existing upload logic
+      const uploadResult = await uploadToSupabase(fileObject, roomId, {
+        encrypt: session.encrypt
+      });
+
+      // Create message record
+      const messageData = {
+        room_id: roomId,
+        sender_id: session.userId,
+        content: session.caption || null,
+        message_type: 'file',
+        file_name: session.fileName,
+        file_size: session.fileSize,
+        file_type: session.fileType,
+        file_url: uploadResult.publicUrl,
+        preview_url: uploadResult.previewUrl,
+        is_encrypted: uploadResult.isEncrypted,
+        file_category: uploadResult.fileCategory,
+        supports_inline_view: uploadResult.needsPreview
+      };
+
+      const { data: message, error: messageError } = await supabase
+        .from('messages')
+        .insert(messageData)
+        .select(`
+          *,
+          users:sender_id (
+            id,
+            username
+          )
+        `)
+        .single();
+
+      if (messageError) {
+        console.error('Error creating message:', messageError);
+        throw messageError;
+      }
+
+      // Cleanup session
+      uploadSessions.delete(sessionId);
+      uploadChunks.delete(sessionId);
+
+      console.log(`Upload completed successfully: ${session.fileName}`);
+
+      res.json({
+        success: true,
+        message: 'File uploaded successfully',
+        data: message
+      });
+
+    } catch (error) {
+      console.error('Error finalizing upload:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to finalize upload'
+      });
+    }
   }
 };
+
+// Helper function to get file config for a file type
+function getFileConfigForType(mimeType) {
+  const allowedTypes = {
+    'image/jpeg': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/jpg': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/png': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/gif': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'image/webp': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/pdf': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/msword': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': { maxSize: 120 * 1024 * 1024, needsPreview: true },
+    'application/vnd.ms-excel': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/vnd.ms-powerpoint': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'text/plain': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'text/csv': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/json': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/zip': { maxSize: 120 * 1024 * 1024, needsPreview: false },
+    'application/x-zip-compressed': { maxSize: 120 * 1024 * 1024, needsPreview: false }
+  };
+  
+  return allowedTypes[mimeType] || { maxSize: 120 * 1024 * 1024, needsPreview: false };
+}
+
+// Cleanup old sessions (call periodically)
+function cleanupOldSessions() {
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  
+  for (const [sessionId, session] of uploadSessions) {
+    if (session.createdAt < oneHourAgo) {
+      console.log(`Cleaning up old session: ${sessionId}`);
+      uploadSessions.delete(sessionId);
+      uploadChunks.delete(sessionId);
+    }
+  }
+}
 
 module.exports = messageController; 
