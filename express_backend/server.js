@@ -12,20 +12,20 @@ const messageRoutes = require('./routes/messageRoutes');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Enhanced middleware with large file support
+// Enhanced middleware with Vercel-compatible limits
 app.use(cors());
 
-// Increased payload limits for chunked uploads and large files
+// Reduced payload limits for Vercel serverless compatibility
 app.use(express.json({ 
-  limit: '50mb',
-  parameterLimit: 10000,
+  limit: '4mb',  // Reduced for Vercel compatibility
+  parameterLimit: 5000,
   extended: true
 }));
 
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '50mb',
-  parameterLimit: 10000
+  limit: '4mb',  // Reduced for Vercel compatibility
+  parameterLimit: 5000
 }));
 
 // Enhanced timeout middleware for large file operations

@@ -68,13 +68,13 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
-// Separate configuration for chunk uploads
+// Separate configuration for chunk uploads - Vercel compatible
 const chunkUpload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max per chunk (larger than our 5MB chunks for safety)
+    fileSize: 4 * 1024 * 1024, // 4MB max per chunk (under Vercel's 4.5MB limit)
     files: 1,
-    fieldSize: 1024 * 1024, // 1MB for metadata fields
+    fieldSize: 512 * 1024, // 512KB for metadata fields
   },
   fileFilter: (req, file, cb) => {
     // Less strict validation for chunks - just check basic security

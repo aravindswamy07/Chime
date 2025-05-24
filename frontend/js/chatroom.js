@@ -1216,7 +1216,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Show chunked upload indicator for large files
-        if (file.size > 5 * 1024 * 1024) {
+        if (file.size > 3 * 1024 * 1024) {
           showChunkedUploadInfo(file);
         }
       } else {
@@ -1410,9 +1410,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.value = '';
   }
 
-  // Chunked upload configuration
-  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
-  const MOBILE_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB for mobile/slow connections
+  // Chunked upload configuration - Reduced for Vercel compatibility
+  const CHUNK_SIZE = 3 * 1024 * 1024; // 3MB chunks (under Vercel's 4.5MB limit)
+  const MOBILE_CHUNK_SIZE = 1.5 * 1024 * 1024; // 1.5MB for mobile/slow connections
   const MAX_PARALLEL_UPLOADS = 3;
   
   // Detect if user is on mobile or slow connection
@@ -1586,6 +1586,12 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        
+        // Handle 413 Payload Too Large errors
+        if (response.status === 413) {
+          throw new Error(`Chunk too large for server. Try smaller files or check your connection.`);
+        }
+        
         throw new Error(errorData.message || `Chunk ${chunkIndex + 1} upload failed`);
       }
       
@@ -1872,8 +1878,8 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`File compressed: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)} (${savings}% reduction)`);
       }
       
-      // Use chunked upload for files larger than 5MB or if user prefers
-      if (fileToUpload.size > 5 * 1024 * 1024) {
+      // Use chunked upload for files larger than 3MB or if user prefers
+      if (fileToUpload.size > 3 * 1024 * 1024) {
         await uploadFileInChunks(fileToUpload, caption, encrypt);
       } else {
         // Use traditional upload for small files
