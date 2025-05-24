@@ -1216,7 +1216,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Show chunked upload indicator for large files
-        if (file.size > 3 * 1024 * 1024) {
+        if (file.size > 5 * 1024 * 1024) {
           showChunkedUploadInfo(file);
         }
       } else {
@@ -1961,11 +1961,13 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`File compressed: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)} (${savings}% reduction)`);
       }
       
-      // Use chunked upload for files larger than 3MB or if user prefers
-      if (fileToUpload.size > 3 * 1024 * 1024) {
+      // Use chunked upload for files larger than 5MB (as requested by user)
+      if (fileToUpload.size > 5 * 1024 * 1024) {
+        console.log(`Using chunked upload for large file: ${window.formatFileSize(fileToUpload.size)}`);
         await uploadFileInChunks(fileToUpload, caption, encrypt);
       } else {
-        // Use traditional upload for small files
+        // Use traditional upload for small files (≤5MB)
+        console.log(`Using traditional upload for small file: ${window.formatFileSize(fileToUpload.size)}`);
         await uploadFileTraditional(fileToUpload, caption, encrypt);
       }
       
@@ -1983,6 +1985,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const originalFileName = file.name;
     
     try {
+      console.log(`Starting traditional upload: ${originalFileName} (${window.formatFileSize(file.size)})`);
+      
       const formData = new FormData();
       formData.append('file', file);
       if (caption) formData.append('caption', caption);
@@ -1997,23 +2001,50 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       `;
 
+      console.log(`Sending file to: /api/rooms/${roomId}/upload`);
+
       const response = await fetch(`/api/rooms/${roomId}/upload`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
 
+      console.log(`Upload response status: ${response.status}`);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Upload failed');
+        let errorData;
+        try {
+          errorData = await response.json();
+          console.error('Upload error response:', errorData);
+        } catch (jsonError) {
+          console.error('Failed to parse error response as JSON:', jsonError);
+          errorData = { message: `Server error (HTTP ${response.status})` };
+        }
+        
+        // Handle specific error types
+        if (response.status === 413) {
+          throw new Error('File too large for traditional upload. Try a smaller file.');
+        } else if (response.status === 500) {
+          throw new Error(`Server error during upload: ${errorData.message || 'Internal server error'}. Please try again.`);
+        } else if (response.status === 403) {
+          throw new Error('Access denied. You may not have permission to upload to this room.');
+        } else if (response.status === 404) {
+          throw new Error('Room not found or upload endpoint unavailable.');
+        } else {
+          throw new Error(errorData.message || `Upload failed with status ${response.status}`);
+        }
       }
 
       const data = await response.json();
+      console.log('Upload response data:', data);
+      
       if (!data.success) {
+        console.error('Upload failed according to response:', data);
         throw new Error(data.message || 'Upload failed');
       }
 
       // Success
+      console.log(`Traditional upload completed successfully: ${originalFileName}`);
       removeFile();
       showSuccessMessage(`File "${originalFileName}" uploaded successfully!`);
       
@@ -2021,6 +2052,21 @@ document.addEventListener('DOMContentLoaded', () => {
         navigator.vibrate(50);
       }
 
+    } catch (error) {
+      console.error('Traditional upload error:', error);
+      
+      // Show user-friendly error message
+      let userMessage = error.message;
+      if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+        userMessage = 'Network error. Please check your connection and try again.';
+      } else if (error.message.includes('Server error')) {
+        userMessage = `${error.message} This might be a temporary server issue.`;
+      }
+      
+      alert(`Upload failed: ${userMessage}`);
+      
+      // Re-throw the error so the caller can handle it
+      throw error;
     } finally {
       uploadFileButton.disabled = false;
       uploadFileButton.innerHTML = 'Send File';

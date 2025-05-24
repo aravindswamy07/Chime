@@ -144,10 +144,17 @@ const messageController = {
       const userId = req.user.id;
       const { caption, encrypt } = req.body; // Optional caption and encryption flag
       
-      console.log(`User ${userId} uploading file to room ${roomId}`);
+      console.log(`📤 Traditional upload request - User: ${userId}, Room: ${roomId}`);
+      console.log(`📋 Request body:`, { caption, encrypt });
+      console.log(`📁 File info:`, req.file ? {
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      } : 'No file');
       
       // Check if file was uploaded
       if (!req.file) {
+        console.error('❌ No file uploaded in request');
         return res.status(400).json({
           success: false,
           message: 'No file uploaded'
@@ -155,8 +162,10 @@ const messageController = {
       }
       
       // Check if room exists and user is a member
+      console.log(`🔍 Checking room ${roomId} and user ${userId} membership...`);
       const room = await ChatRoom.getById(roomId);
       if (!room) {
+        console.error(`❌ Room ${roomId} not found`);
         return res.status(404).json({
           success: false,
           message: 'Room not found'
@@ -165,6 +174,7 @@ const messageController = {
       
       const isMember = await ChatRoom.isMember(roomId, userId);
       if (!isMember) {
+        console.error(`❌ User ${userId} is not a member of room ${roomId}`);
         return res.status(403).json({
           success: false,
           message: 'You must be a member of the room to upload files'
@@ -173,18 +183,25 @@ const messageController = {
       
       const file = req.file;
       
-      console.log(`Processing file: ${file.originalname} (${formatFileSize(file.size)})`);
+      console.log(`✅ Validation passed. Processing file: ${file.originalname} (${formatFileSize(file.size)})`);
       
       // Upload file to Supabase Storage with security options
       const uploadOptions = {
         encrypt: encrypt === 'true' || encrypt === true
       };
       
+      console.log(`📤 Uploading to Supabase with options:`, uploadOptions);
       const uploadResult = await uploadToSupabase(file, roomId, uploadOptions);
+      console.log(`✅ Supabase upload successful:`, {
+        publicUrl: uploadResult.publicUrl,
+        hasPreview: !!uploadResult.previewUrl,
+        isEncrypted: uploadResult.isEncrypted
+      });
       
       // Determine if file supports inline viewing
       const supportsInline = supportsInlineViewing(file.mimetype);
       
+      console.log(`💾 Creating message record...`);
       // Create message with enhanced file attachment data
       const message = await Message.create({
         roomId,
@@ -202,13 +219,14 @@ const messageController = {
       });
       
       if (!message) {
+        console.error('❌ Failed to create message record');
         return res.status(500).json({
           success: false,
           message: 'Failed to save file message'
         });
       }
       
-      console.log(`Enhanced file message created with ID: ${message.id}`);
+      console.log(`✅ Traditional upload completed successfully. Message ID: ${message.id}`);
       
       return res.status(201).json({
         success: true,
@@ -223,10 +241,20 @@ const messageController = {
       });
       
     } catch (error) {
-      console.error('Upload file error:', error);
+      console.error('❌ Traditional upload error:', error);
+      console.error('❌ Error stack:', error.stack);
+      
+      // Log additional context
+      console.error('❌ Request details:', {
+        roomId: req.params.roomId,
+        userId: req.user?.id,
+        hasFile: !!req.file,
+        userAgent: req.get('User-Agent')
+      });
+      
       return res.status(500).json({
         success: false,
-        message: error.message || 'Server error during file upload'
+        message: `Server error during file upload: ${error.message}`
       });
     }
   },
