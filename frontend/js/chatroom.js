@@ -1399,6 +1399,41 @@ document.addEventListener('DOMContentLoaded', () => {
     fileCaptionInput.value = '';
     filePreview.classList.remove('hidden');
     
+    // Add upload method indicator
+    const maxTraditionalSize = 120 * 1024 * 1024; // 120MB
+    const forceChunkedThreshold = 50 * 1024 * 1024; // 50MB
+    let uploadMethodInfo = '';
+    
+    if (file.size <= forceChunkedThreshold) {
+      uploadMethodInfo = `
+        <div class="upload-method-info traditional mt-2 flex items-center space-x-2 text-sm text-green-600">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 13l3 3m0 0l3-3m-3 3V8" />
+          </svg>
+          <span>Supabase Direct Upload (Fast & Reliable)</span>
+        </div>
+      `;
+    } else {
+      uploadMethodInfo = `
+        <div class="upload-method-info chunked mt-2 flex items-center space-x-2 text-sm text-orange-600">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          <span>Chunked Upload (Large File)</span>
+        </div>
+      `;
+    }
+    
+    // Remove any existing upload method info
+    const existingInfo = filePreview.querySelector('.upload-method-info');
+    if (existingInfo) {
+      existingInfo.remove();
+    }
+    
+    // Add new upload method info
+    const fileInfoContainer = filePreview.querySelector('.file-info') || filePreview;
+    fileInfoContainer.insertAdjacentHTML('afterend', uploadMethodInfo);
+    
     // Scroll to show preview
     filePreview.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -2337,7 +2372,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 100);
   }
 
-  // Upload file with adaptive upload system
+  // Upload file with traditional Supabase upload as primary method
   async function uploadFile() {
     if (!selectedFile) {
       alert('No file selected');
@@ -2367,26 +2402,39 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`File compressed: ${window.formatFileSize(selectedFile.size)} → ${window.formatFileSize(fileToUpload.size)} (${savings}% reduction)`);
       }
       
-      // Adaptive decision for upload method based on file size and connection
-      let useChunkedUpload = false;
-      let threshold;
+      // Use traditional upload (which already uses Supabase) for most files
+      // Only use chunked upload for extremely large files that might cause timeouts
+      const maxTraditionalSize = 120 * 1024 * 1024; // 120MB - Supabase limit
+      const forceChunkedThreshold = 50 * 1024 * 1024; // 50MB - start preferring chunked for very large files
       
-      if (isVerySlowConnection()) {
-        threshold = 2 * 1024 * 1024; // 2MB threshold for very slow connections
-      } else if (isMobileOrSlowConnection()) {
-        threshold = 3 * 1024 * 1024; // 3MB threshold for mobile/slow connections
+      if (fileToUpload.size <= maxTraditionalSize) {
+        if (fileToUpload.size <= forceChunkedThreshold) {
+          // Use traditional upload (Supabase) for files up to 50MB
+          console.log(`Using traditional Supabase upload for file: ${window.formatFileSize(fileToUpload.size)}`);
+          await uploadFileTraditional(fileToUpload, caption, encrypt);
+        } else {
+          // For files between 50MB-120MB, offer user choice
+          console.log(`Large file detected: ${window.formatFileSize(fileToUpload.size)}`);
+          
+          const useTraditional = confirm(
+            `This is a large file (${window.formatFileSize(fileToUpload.size)}). Choose upload method:\n\n` +
+            `OK = Quick Upload (faster, may timeout on slow connections)\n` +
+            `Cancel = Chunked Upload (slower but more reliable)\n\n` +
+            `Recommended: Quick Upload for most connections`
+          );
+          
+          if (useTraditional) {
+            console.log('User chose traditional upload for large file');
+            await uploadFileTraditional(fileToUpload, caption, encrypt);
+          } else {
+            console.log('User chose chunked upload for large file');
+            await uploadFileInChunks(fileToUpload, caption, encrypt);
+          }
+        }
       } else {
-        threshold = 5 * 1024 * 1024; // 5MB threshold for normal connections
-      }
-      
-      useChunkedUpload = fileToUpload.size > threshold;
-      
-      if (useChunkedUpload) {
-        console.log(`Using chunked upload for file: ${window.formatFileSize(fileToUpload.size)} (threshold: ${window.formatFileSize(threshold)})`);
+        // File exceeds Supabase limits, must use chunked upload
+        console.log(`File too large for Supabase (${window.formatFileSize(fileToUpload.size)}), using chunked upload`);
         await uploadFileInChunks(fileToUpload, caption, encrypt);
-      } else {
-        console.log(`Using traditional upload for file: ${window.formatFileSize(fileToUpload.size)} (threshold: ${window.formatFileSize(threshold)})`);
-        await uploadFileTraditional(fileToUpload, caption, encrypt);
       }
       
     } catch (error) {
@@ -2394,7 +2442,25 @@ document.addEventListener('DOMContentLoaded', () => {
       uploadFileButton.disabled = false;
       uploadFileButton.innerHTML = 'Send File';
       
-      // Don't show alert here as it's handled in individual upload functions
+      // If traditional upload fails due to size/timeout, offer chunked as fallback
+      if ((error.message.includes('timeout') || error.message.includes('413') || error.message.includes('large')) 
+          && fileToUpload.size > 10 * 1024 * 1024) {
+        const useChunked = confirm(
+          `Upload failed: ${error.message}\n\n` +
+          `Would you like to try chunked upload instead?\n` +
+          `(May be slower but more reliable for large files)`
+        );
+        
+        if (useChunked) {
+          try {
+            console.log('Trying chunked upload as fallback...');
+            await uploadFileInChunks(fileToUpload, caption, encrypt);
+          } catch (chunkedError) {
+            console.error('Chunked upload fallback also failed:', chunkedError);
+            // Error is already shown by individual upload functions
+          }
+        }
+      }
     }
   }
   
@@ -2569,4 +2635,7 @@ document.addEventListener('DOMContentLoaded', () => {
       img.src = URL.createObjectURL(file);
     });
   }
+
+  // === SUPABASE DIRECT UPLOAD SYSTEM ===
+  // Note: The traditional upload already uses Supabase, so no separate function needed
 }); 
