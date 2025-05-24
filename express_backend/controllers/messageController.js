@@ -1,6 +1,7 @@
 const Message = require('../models/Message');
 const ChatRoom = require('../models/ChatRoom');
 const { getFileCategory, formatFileSize, uploadToSupabase, supportsInlineViewing } = require('../config/fileUpload');
+const supabase = require('../config/db');
 
 // Store for upload sessions (in production, use Redis or database)
 const uploadSessions = new Map();
