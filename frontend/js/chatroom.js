@@ -1551,12 +1551,18 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (error) {
       console.error('Chunked upload error:', error);
       
-      // Show user-friendly error
+      // Show user-friendly error based on error type
       let errorMessage = error.message;
-      if (error.message.includes('Network error')) {
-        errorMessage = 'Network error. Upload will resume when connection is restored.';
+      if (error.message.includes('Network error') || error.message.includes('timeout')) {
+        errorMessage = 'Network error or timeout. Please check your connection and try again.';
       } else if (error.message.includes('session')) {
         errorMessage = 'Upload session error. Please try again.';
+      } else if (error.message.includes('Missing chunks')) {
+        errorMessage = `Upload incomplete. ${error.message}. Please try again.`;
+      } else if (error.message.includes('413') || error.message.includes('too large')) {
+        errorMessage = 'File chunks too large for server. Try a smaller file.';
+      } else if (error.message.includes('Failed to finalize')) {
+        errorMessage = 'Upload completed but finalization failed. Please try again.';
       }
       
       alert(`Upload failed: ${errorMessage}`);
@@ -1577,93 +1583,128 @@ document.addEventListener('DOMContentLoaded', () => {
     const { sessionId, totalChunks, chunkSize, sessionData } = uploadSession;
     let uploadedChunks = 0;
     const completedChunks = new Set(); // Track completed chunks
+    const failedChunks = new Set(); // Track failed chunks
+    const maxRetries = 3;
+    const chunkTimeout = 60000; // 60 seconds per chunk
     
-    // Create chunk upload tasks
-    const chunkTasks = [];
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      chunkTasks.push(() => uploadChunk(file, uploadSession, chunkIndex));
-    }
-    
-    // Process chunks with limited concurrency
-    const processChunk = async (taskIndex) => {
-      const chunkIndex = taskIndex;
+    // Process chunks with limited concurrency and retry logic
+    const processChunk = async (chunkIndex, retryCount = 0) => {
       const start = chunkIndex * chunkSize;
       const end = Math.min(start + chunkSize, file.size);
       const chunk = file.slice(start, end);
       
-      console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} (${window.formatFileSize(chunk.size)})`);
+      console.log(`Uploading chunk ${chunkIndex + 1}/${totalChunks} (${window.formatFileSize(chunk.size)}) - Attempt ${retryCount + 1}`);
       
-      const formData = new FormData();
-      formData.append('chunk', chunk);
-      formData.append('sessionId', sessionId);
-      formData.append('chunkIndex', chunkIndex);
-      formData.append('totalChunks', totalChunks);
-      formData.append('sessionData', sessionData); // Pass session data with each chunk
-      
-      const response = await fetch(`/api/rooms/${roomId}/upload/chunk`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formData
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+      try {
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('sessionId', sessionId);
+        formData.append('chunkIndex', chunkIndex);
+        formData.append('totalChunks', totalChunks);
+        formData.append('sessionData', sessionData);
         
-        // Handle 413 Payload Too Large errors
-        if (response.status === 413) {
-          throw new Error(`Chunk too large for server. Try smaller files or check your connection.`);
+        // Add timeout to individual chunk uploads
+        const uploadPromise = fetch(`/api/rooms/${roomId}/upload/chunk`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Chunk ${chunkIndex + 1} upload timeout`)), chunkTimeout)
+        );
+        
+        const response = await Promise.race([uploadPromise, timeoutPromise]);
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          
+          if (response.status === 413) {
+            throw new Error(`Chunk ${chunkIndex + 1} too large for server`);
+          }
+          
+          throw new Error(errorData.message || `Chunk ${chunkIndex + 1} upload failed (HTTP ${response.status})`);
         }
         
-        throw new Error(errorData.message || `Chunk ${chunkIndex + 1} upload failed`);
-      }
-      
-      const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.message || `Chunk ${chunkIndex + 1} processing failed`);
-      }
-      
-      // Update progress - ensure we track unique chunks
-      if (!completedChunks.has(chunkIndex)) {
-        completedChunks.add(chunkIndex);
-        uploadedChunks++;
-        const progress = uploadedChunks >= totalChunks ? 100 : Math.round((uploadedChunks / totalChunks) * 100);
-        updateUploadProgress(progress, uploadedChunks, totalChunks);
+        const result = await response.json();
+        if (!result.success) {
+          throw new Error(result.message || `Chunk ${chunkIndex + 1} processing failed`);
+        }
         
-        uploadSession.uploadedChunks.add(chunkIndex);
-        console.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully (${progress}%)`);
+        // Update progress - ensure we track unique chunks
+        if (!completedChunks.has(chunkIndex)) {
+          completedChunks.add(chunkIndex);
+          failedChunks.delete(chunkIndex); // Remove from failed set if it was there
+          uploadedChunks++;
+          const progress = uploadedChunks >= totalChunks ? 100 : Math.round((uploadedChunks / totalChunks) * 100);
+          updateUploadProgress(progress, uploadedChunks, totalChunks);
+          
+          uploadSession.uploadedChunks.add(chunkIndex);
+          console.log(`✅ Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully (${progress}%)`);
+          
+          // Log when all chunks are complete
+          if (uploadedChunks === totalChunks) {
+            console.log(`🎉 All ${totalChunks} chunks uploaded successfully! Ready for finalization.`);
+          }
+        }
         
-        // Log when all chunks are complete
-        if (uploadedChunks === totalChunks) {
-          console.log(`🎉 All ${totalChunks} chunks uploaded successfully! Ready for finalization.`);
+      } catch (error) {
+        console.error(`❌ Chunk ${chunkIndex + 1} failed (attempt ${retryCount + 1}):`, error.message);
+        
+        // Add to failed chunks set
+        failedChunks.add(chunkIndex);
+        
+        // Retry logic
+        if (retryCount < maxRetries) {
+          console.log(`🔄 Retrying chunk ${chunkIndex + 1} (attempt ${retryCount + 2}/${maxRetries + 1})`);
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))); // Exponential backoff
+          return await processChunk(chunkIndex, retryCount + 1);
+        } else {
+          console.error(`💥 Chunk ${chunkIndex + 1} failed permanently after ${maxRetries + 1} attempts`);
+          throw error;
         }
       }
     };
     
     // Execute chunks with controlled concurrency
-    const executeWithConcurrency = async (tasks, maxConcurrency) => {
+    const executeWithConcurrency = async (totalChunks, maxConcurrency) => {
       const executing = [];
+      const chunkPromises = [];
       
-      for (let i = 0; i < tasks.length; i++) {
-        const promise = processChunk(i).then(() => {
-          executing.splice(executing.indexOf(promise), 1);
-        });
-        executing.push(promise);
+      for (let i = 0; i < totalChunks; i++) {
+        const chunkPromise = processChunk(i);
+        chunkPromises.push(chunkPromise);
+        executing.push(chunkPromise.then(() => {
+          executing.splice(executing.indexOf(chunkPromise), 1);
+        }));
         
         if (executing.length >= maxConcurrency) {
           await Promise.race(executing);
         }
       }
       
-      await Promise.all(executing);
+      // Wait for all chunks to complete
+      await Promise.all(chunkPromises);
     };
     
-    await executeWithConcurrency(chunkTasks, MAX_PARALLEL_UPLOADS);
+    await executeWithConcurrency(totalChunks, MAX_PARALLEL_UPLOADS);
     
     // Verify all chunks are uploaded before returning
     if (uploadedChunks !== totalChunks) {
-      throw new Error(`Upload incomplete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
+      const missingChunks = [];
+      for (let i = 0; i < totalChunks; i++) {
+        if (!completedChunks.has(i)) {
+          missingChunks.push(i + 1);
+        }
+      }
+      
+      console.error(`❌ Upload incomplete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
+      console.error(`❌ Missing chunks: ${missingChunks.join(', ')}`);
+      console.error(`❌ Failed chunks: ${Array.from(failedChunks).map(i => i + 1).join(', ')}`);
+      
+      throw new Error(`Upload incomplete: ${uploadedChunks}/${totalChunks} chunks uploaded. Missing chunks: ${missingChunks.join(', ')}`);
     }
     
     console.log(`✅ Chunk upload phase complete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
