@@ -1492,21 +1492,39 @@ document.addEventListener('DOMContentLoaded', () => {
       // Upload chunks in parallel (limited concurrency)
       await uploadChunksInParallel(file, uploadSession);
       
-      // Finalize upload
-      const finalizeResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          sessionId,
-          sessionData: uploadSession.sessionData // Pass session data to finalize
-        })
-      });
+      // Show finalization status
+      uploadFileButton.innerHTML = `
+        <div class="flex items-center space-x-2">
+          <svg class="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span>Finalizing upload...</span>
+        </div>
+      `;
+      
+      console.log(`All chunks uploaded successfully. Finalizing upload...`);
+      
+      // Finalize upload with timeout
+      const finalizeResponse = await Promise.race([
+        fetch(`/api/rooms/${roomId}/upload/finalize`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ 
+            sessionId,
+            sessionData: uploadSession.sessionData // Pass session data to finalize
+          })
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Finalization timeout')), 60000) // 60 second timeout
+        )
+      ]);
       
       if (!finalizeResponse.ok) {
-        throw new Error('Failed to finalize upload');
+        const errorData = await finalizeResponse.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to finalize upload');
       }
       
       const result = await finalizeResponse.json();
@@ -1558,6 +1576,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function uploadChunksInParallel(file, uploadSession) {
     const { sessionId, totalChunks, chunkSize, sessionData } = uploadSession;
     let uploadedChunks = 0;
+    const completedChunks = new Set(); // Track completed chunks
     
     // Create chunk upload tasks
     const chunkTasks = [];
@@ -1605,13 +1624,21 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(result.message || `Chunk ${chunkIndex + 1} processing failed`);
       }
       
-      // Update progress
-      uploadedChunks++;
-      const progress = Math.round((uploadedChunks / totalChunks) * 100);
-      updateUploadProgress(progress, uploadedChunks, totalChunks);
-      
-      uploadSession.uploadedChunks.add(chunkIndex);
-      console.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully (${progress}%)`);
+      // Update progress - ensure we track unique chunks
+      if (!completedChunks.has(chunkIndex)) {
+        completedChunks.add(chunkIndex);
+        uploadedChunks++;
+        const progress = uploadedChunks >= totalChunks ? 100 : Math.round((uploadedChunks / totalChunks) * 100);
+        updateUploadProgress(progress, uploadedChunks, totalChunks);
+        
+        uploadSession.uploadedChunks.add(chunkIndex);
+        console.log(`Chunk ${chunkIndex + 1}/${totalChunks} uploaded successfully (${progress}%)`);
+        
+        // Log when all chunks are complete
+        if (uploadedChunks === totalChunks) {
+          console.log(`🎉 All ${totalChunks} chunks uploaded successfully! Ready for finalization.`);
+        }
+      }
     };
     
     // Execute chunks with controlled concurrency
@@ -1633,11 +1660,21 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     
     await executeWithConcurrency(chunkTasks, MAX_PARALLEL_UPLOADS);
+    
+    // Verify all chunks are uploaded before returning
+    if (uploadedChunks !== totalChunks) {
+      throw new Error(`Upload incomplete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
+    }
+    
+    console.log(`✅ Chunk upload phase complete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
   }
   
   // Update upload progress in UI
   function updateUploadProgress(percentage, uploaded, total) {
-    const progressText = `Uploading... ${uploaded}/${total} chunks (${percentage}%)`;
+    // Ensure we show 100% when all chunks are uploaded
+    const actualProgress = uploaded >= total ? 100 : Math.round((uploaded / total) * 100);
+    const progressText = `Uploading... ${uploaded}/${total} chunks (${actualProgress}%)`;
+    
     uploadFileButton.innerHTML = `
       <div class="flex flex-col items-center space-y-1 w-full">
         <div class="flex items-center space-x-2">
@@ -1647,7 +1684,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="text-sm">${progressText}</span>
         </div>
         <div class="w-full bg-gray-200 rounded-full h-2">
-          <div class="bg-green-600 h-2 rounded-full transition-all duration-300" style="width: ${percentage}%"></div>
+          <div class="bg-green-600 h-2 rounded-full transition-all duration-300" style="width: ${actualProgress}%"></div>
         </div>
       </div>
     `;

@@ -371,7 +371,10 @@ const messageController = {
       const { sessionId, sessionData } = req.body;
       const { roomId } = req.params;
 
+      console.log(`🔄 Finalization request received for session: ${sessionId}`);
+
       if (!sessionId || !sessionData) {
+        console.error('❌ Missing session ID or session data in finalization request');
         return res.status(400).json({
           success: false,
           message: 'Missing session ID or session data'
@@ -382,7 +385,9 @@ const messageController = {
       let session;
       try {
         session = JSON.parse(Buffer.from(sessionData, 'base64').toString());
+        console.log(`✅ Session data decoded successfully for: ${session.fileName}`);
       } catch (error) {
+        console.error('❌ Failed to decode session data:', error);
         return res.status(400).json({
           success: false,
           message: 'Invalid session data'
@@ -391,25 +396,30 @@ const messageController = {
 
       // Validate session
       if (session.sessionId !== sessionId || session.roomId !== roomId) {
+        console.error(`❌ Session validation failed. Expected: ${sessionId}/${roomId}, Got: ${session.sessionId}/${session.roomId}`);
         return res.status(403).json({
           success: false,
           message: 'Session validation failed'
         });
       }
 
-      console.log(`Finalizing upload for session ${sessionId}: ${session.fileName}`);
+      console.log(`🔄 Finalizing upload for session ${sessionId}: ${session.fileName} (${session.totalChunks} chunks)`);
 
       // Get chunks from memory
       const chunks = activeChunks.get(sessionId);
       if (!chunks) {
+        console.error(`❌ Chunks not found in memory for session: ${sessionId}`);
         return res.status(400).json({
           success: false,
           message: 'Chunks not found in memory. Upload may have timed out.'
         });
       }
 
+      console.log(`📦 Found ${chunks.size} chunks in memory for session: ${sessionId}`);
+
       // Check if all chunks received
       if (chunks.size !== session.totalChunks) {
+        console.error(`❌ Missing chunks: received ${chunks.size}/${session.totalChunks} for session: ${sessionId}`);
         return res.status(400).json({
           success: false,
           message: `Missing chunks: received ${chunks.size}/${session.totalChunks}`
@@ -417,17 +427,25 @@ const messageController = {
       }
 
       // Reassemble file from chunks
+      console.log(`🔧 Reassembling ${session.totalChunks} chunks for: ${session.fileName}`);
       const sortedChunks = [];
       for (let i = 0; i < session.totalChunks; i++) {
         const chunk = chunks.get(i);
         if (!chunk) {
+          console.error(`❌ Missing chunk ${i} for session: ${sessionId}`);
           throw new Error(`Missing chunk ${i}`);
         }
         sortedChunks.push(chunk);
       }
 
       const completeFile = Buffer.concat(sortedChunks);
-      console.log(`Reassembled file: ${completeFile.length} bytes`);
+      console.log(`✅ File reassembled successfully: ${completeFile.length} bytes (expected: ${session.fileSize})`);
+
+      // Validate file size
+      if (completeFile.length !== session.fileSize) {
+        console.error(`❌ File size mismatch: expected ${session.fileSize}, got ${completeFile.length}`);
+        throw new Error(`File size mismatch: expected ${session.fileSize}, got ${completeFile.length}`);
+      }
 
       // Create a file object compatible with existing upload logic
       const fileObject = {
@@ -438,10 +456,14 @@ const messageController = {
         fileConfig: getFileConfigForType(session.fileType)
       };
 
+      console.log(`📤 Uploading reassembled file to Supabase: ${session.fileName}`);
+
       // Use existing upload logic
       const uploadResult = await uploadToSupabase(fileObject, roomId, {
         encrypt: session.encrypt
       });
+
+      console.log(`✅ File uploaded to Supabase successfully: ${uploadResult.publicUrl}`);
 
       // Create message record
       const message = await Message.create({
@@ -460,13 +482,17 @@ const messageController = {
       });
 
       if (!message) {
+        console.error(`❌ Failed to create message for session: ${sessionId}`);
         throw new Error('Failed to create message');
       }
 
+      console.log(`✅ Message created successfully with ID: ${message.id}`);
+
       // Cleanup chunks from memory
       activeChunks.delete(sessionId);
+      console.log(`🧹 Cleaned up chunks from memory for session: ${sessionId}`);
 
-      console.log(`Upload completed successfully: ${session.fileName}`);
+      console.log(`🎉 Upload completed successfully: ${session.fileName}`);
 
       res.json({
         success: true,
@@ -475,10 +501,10 @@ const messageController = {
       });
 
     } catch (error) {
-      console.error('Error finalizing upload:', error);
+      console.error('❌ Error finalizing upload:', error);
       res.status(500).json({
         success: false,
-        message: 'Failed to finalize upload'
+        message: `Failed to finalize upload: ${error.message}`
       });
     }
   }
