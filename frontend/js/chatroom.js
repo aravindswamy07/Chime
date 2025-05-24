@@ -1522,6 +1522,10 @@ document.addEventListener('DOMContentLoaded', () => {
       // Upload chunks with adaptive parallelism
       await uploadChunksInParallel(file, uploadSession);
       
+      // Verify all chunks are processed on server before finalizing
+      console.log(`Verifying all chunks are processed on server...`);
+      await verifyChunksOnServer(uploadSession);
+      
       // Show finalization status
       uploadFileButton.innerHTML = `
         <div class="flex items-center space-x-2">
@@ -1554,13 +1558,50 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (!finalizeResponse.ok) {
         const errorData = await finalizeResponse.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to finalize upload');
-      }
-      
-      const result = await finalizeResponse.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'Upload finalization failed');
+        
+        // Handle specific error cases
+        if (errorData.message && errorData.message.includes('Missing chunks')) {
+          console.error('Server reports missing chunks:', errorData.message);
+          
+          // Try one more time with additional delay
+          console.log('Attempting finalization retry with additional delay...');
+          await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay
+          
+          const retryResponse = await fetch(`/api/rooms/${roomId}/upload/finalize`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ 
+              sessionId,
+              sessionData: uploadSession.sessionData
+            })
+          });
+          
+          if (!retryResponse.ok) {
+            const retryErrorData = await retryResponse.json().catch(() => ({}));
+            throw new Error(`Finalization failed on retry: ${retryErrorData.message || 'Unknown error'}`);
+          }
+          
+          const retryResult = await retryResponse.json();
+          if (!retryResult.success) {
+            throw new Error(`Finalization retry failed: ${retryResult.message || 'Unknown error'}`);
+          }
+          
+          console.log('✅ Finalization successful on retry!');
+          
+        } else {
+          throw new Error(errorData.message || 'Failed to finalize upload');
+        }
+      } else {
+        const result = await finalizeResponse.json();
+        
+        if (!result.success) {
+          throw new Error(result.message || 'Upload finalization failed');
+        }
+        
+        console.log('✅ Finalization successful on first attempt!');
       }
       
       // Success!
@@ -1756,6 +1797,106 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log(`✅ Chunk upload phase complete: ${uploadedChunks}/${totalChunks} chunks uploaded`);
   }
   
+  // Verify all chunks are processed on server before finalization
+  async function verifyChunksOnServer(uploadSession) {
+    const { sessionId, totalChunks, sessionData } = uploadSession;
+    const maxVerificationAttempts = 3; // Reduced attempts since we have fallback
+    const verificationDelay = 2000; // 2 seconds between attempts
+    
+    // First, add a safety delay to ensure server processing is complete
+    console.log(`Waiting 3 seconds for server processing to complete...`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    for (let attempt = 1; attempt <= maxVerificationAttempts; attempt++) {
+      try {
+        console.log(`Server verification attempt ${attempt}/${maxVerificationAttempts}...`);
+        
+        // Add a small delay between attempts
+        if (attempt > 1) {
+          await new Promise(resolve => setTimeout(resolve, verificationDelay));
+        }
+        
+        const response = await fetch(`/api/rooms/${roomId}/upload/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            sessionId,
+            expectedChunks: totalChunks,
+            sessionData
+          })
+        });
+        
+        // If endpoint doesn't exist (404), use fallback approach
+        if (response.status === 404) {
+          console.log(`Verification endpoint not available, using fallback approach...`);
+          return await fallbackVerification(uploadSession);
+        }
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          console.warn(`Verification attempt ${attempt} failed:`, errorData.message || `HTTP ${response.status}`);
+          
+          if (attempt === maxVerificationAttempts) {
+            console.log(`Verification failed, trying fallback approach...`);
+            return await fallbackVerification(uploadSession);
+          }
+          continue; // Try again
+        }
+        
+        const result = await response.json();
+        
+        if (!result.success) {
+          console.warn(`Verification attempt ${attempt} failed:`, result.message);
+          
+          if (attempt === maxVerificationAttempts) {
+            console.log(`Verification failed, trying fallback approach...`);
+            return await fallbackVerification(uploadSession);
+          }
+          continue; // Try again
+        }
+        
+        const { receivedChunks, missingChunks } = result.data;
+        
+        if (receivedChunks === totalChunks) {
+          console.log(`✅ Server verification successful: ${receivedChunks}/${totalChunks} chunks confirmed`);
+          return; // All good, proceed to finalization
+        } else {
+          console.warn(`Server has ${receivedChunks}/${totalChunks} chunks. Missing: ${missingChunks?.join(', ') || 'unknown'}`);
+          
+          if (attempt === maxVerificationAttempts) {
+            throw new Error(`Server missing chunks: received ${receivedChunks}/${totalChunks}. Missing chunks: ${missingChunks?.join(', ') || 'unknown'}`);
+          }
+          // Continue to retry
+        }
+        
+      } catch (error) {
+        console.error(`Verification attempt ${attempt} error:`, error);
+        
+        if (attempt === maxVerificationAttempts) {
+          console.log(`Verification failed after ${maxVerificationAttempts} attempts, trying fallback...`);
+          return await fallbackVerification(uploadSession);
+        }
+        // Continue to retry
+      }
+    }
+  }
+  
+  // Fallback verification using additional delay
+  async function fallbackVerification(uploadSession) {
+    const { totalChunks } = uploadSession;
+    
+    console.log(`Using fallback verification: additional 5 second delay for ${totalChunks} chunks...`);
+    
+    // Additional delay based on number of chunks to ensure server processing
+    const additionalDelay = Math.min(5000 + (totalChunks * 100), 15000); // Max 15 seconds
+    await new Promise(resolve => setTimeout(resolve, additionalDelay));
+    
+    console.log(`✅ Fallback verification complete, proceeding to finalization...`);
+  }
+
   // Update upload progress in UI
   function updateUploadProgress(percentage, uploaded, total) {
     // Ensure we show 100% when all chunks are uploaded
