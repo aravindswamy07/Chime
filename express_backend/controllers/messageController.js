@@ -43,23 +43,41 @@ const messageController = {
     try {
       const roomId = req.params.roomId;
       const userId = req.user.id; // From auth middleware
-      const { content } = req.body;
+      const { content, type, file_name, file_size, file_type, file_url } = req.body;
       
-      console.log(`User ${userId} sending message to room ${roomId}: "${content}" (length: ${content?.length})`);
+      console.log(`User ${userId} sending ${type || 'text'} message to room ${roomId}`);
       
-      // Validate input
-      if (!content || content.trim().length === 0) {
+      // Validate message type
+      const messageType = type || 'text';
+      if (!['text', 'file'].includes(messageType)) {
         return res.status(400).json({
           success: false,
-          message: 'Message content is required'
+          message: 'Invalid message type. Must be "text" or "file"'
         });
       }
       
-      if (content.length > 1000) {
-        return res.status(400).json({
-          success: false,
-          message: 'Message is too long (max 1000 characters)'
-        });
+      // Validate based on message type
+      if (messageType === 'text') {
+        if (!content || content.trim().length === 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Message content is required for text messages'
+          });
+        }
+        
+        if (content.length > 1000) {
+          return res.status(400).json({
+            success: false,
+            message: 'Message is too long (max 1000 characters)'
+          });
+        }
+      } else if (messageType === 'file') {
+        if (!file_name || !file_url || !file_type) {
+          return res.status(400).json({
+            success: false,
+            message: 'File name, URL, and type are required for file messages'
+          });
+        }
       }
       
       // Check if room exists and user is a member
@@ -81,12 +99,24 @@ const messageController = {
         });
       }
       
-      // Create message
-      const message = await Message.create({
+      // Create message data
+      const messageData = {
         roomId,
         senderId: userId,
-        content: content.trim()
-      });
+        content: content ? content.trim() : null,
+        messageType: messageType
+      };
+      
+      // Add file-specific fields if it's a file message
+      if (messageType === 'file') {
+        messageData.fileName = file_name;
+        messageData.fileSize = file_size;
+        messageData.fileType = file_type;
+        messageData.fileUrl = file_url;
+      }
+      
+      // Create message
+      const message = await Message.create(messageData);
       
       if (!message) {
         console.error('Failed to create message in database');
@@ -96,7 +126,7 @@ const messageController = {
         });
       }
       
-      console.log(`Message created successfully with ID: ${message.id}, content: "${message.content}"`);
+      console.log(`${messageType} message created successfully with ID: ${message.id}`);
       
       return res.status(201).json({
         success: true,
@@ -533,6 +563,89 @@ const messageController = {
       res.status(500).json({
         success: false,
         message: `Failed to finalize upload: ${error.message}`
+      });
+    }
+  },
+
+  // Direct Supabase file upload (new clean implementation)
+  async uploadFileToSupabase(req, res) {
+    try {
+      const userId = req.user.id;
+      const { roomId } = req.body;
+      
+      console.log(`📤 Direct Supabase upload - User: ${userId}, Room: ${roomId}`);
+      
+      // Check if file was uploaded
+      if (!req.file) {
+        console.error('❌ No file uploaded in request');
+        return res.status(400).json({
+          success: false,
+          message: 'No file uploaded'
+        });
+      }
+      
+      // Check if room exists and user is a member (if roomId provided)
+      if (roomId) {
+        console.log(`🔍 Checking room ${roomId} and user ${userId} membership...`);
+        const room = await ChatRoom.getById(roomId);
+        if (!room) {
+          console.error(`❌ Room ${roomId} not found`);
+          return res.status(404).json({
+            success: false,
+            message: 'Room not found'
+          });
+        }
+        
+        const isMember = await ChatRoom.isMember(roomId, userId);
+        if (!isMember) {
+          console.error(`❌ User ${userId} is not a member of room ${roomId}`);
+          return res.status(403).json({
+            success: false,
+            message: 'You must be a member of the room to upload files'
+          });
+        }
+      }
+      
+      const file = req.file;
+      
+      console.log(`✅ Validation passed. Processing file: ${file.originalname} (${formatFileSize(file.size)})`);
+      
+      // Upload file to Supabase Storage
+      console.log(`📤 Uploading to Supabase Storage...`);
+      const uploadResult = await uploadToSupabase(file, roomId || 'general', {
+        encrypt: false // No encryption for direct uploads (can be added later)
+      });
+      
+      console.log(`✅ Supabase upload successful:`, {
+        publicUrl: uploadResult.publicUrl,
+        hasPreview: !!uploadResult.previewUrl
+      });
+      
+      // Return file data for frontend to create message
+      const fileData = {
+        url: uploadResult.publicUrl,
+        fileName: file.originalname,
+        fileSize: file.size,
+        fileType: file.mimetype,
+        previewUrl: uploadResult.previewUrl,
+        fileCategory: uploadResult.fileCategory
+      };
+      
+      console.log(`✅ Direct Supabase upload completed successfully`);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'File uploaded successfully to Supabase',
+        data: fileData
+      });
+      
+    } catch (error) {
+      console.error('❌ Direct Supabase upload error:', error);
+      console.error('❌ Error stack:', error.stack);
+      
+      return res.status(500).json({
+        success: false,
+        message: `Server error during file upload: ${error.message}`
       });
     }
   }

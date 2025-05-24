@@ -1,5 +1,104 @@
 /* Custom styles for Chime chat application */
 
+/* Theme Variables */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --text-primary: #374151;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --border-color: #e5e7eb;
+  --border-focus: #4f46e5;
+  --shadow: rgba(0, 0, 0, 0.1);
+}
+
+/* Dark mode variables */
+body.dark-mode {
+  --bg-primary: #1f2937;
+  --bg-secondary: #374151;
+  --bg-tertiary: #4b5563;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --border-color: #4b5563;
+  --border-focus: #6366f1;
+  --shadow: rgba(0, 0, 0, 0.3);
+}
+
+/* Light mode variables (explicit) */
+body.light-mode {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafb;
+  --bg-tertiary: #f3f4f6;
+  --text-primary: #374151;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --border-color: #e5e7eb;
+  --border-focus: #4f46e5;
+  --shadow: rgba(0, 0, 0, 0.1);
+}
+
+/* Apply theme variables to main elements */
+body {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.bg-white {
+  background-color: var(--bg-primary) !important;
+}
+
+.bg-gray-100 {
+  background-color: var(--bg-secondary) !important;
+}
+
+.bg-gray-50 {
+  background-color: var(--bg-tertiary) !important;
+}
+
+.text-gray-800 {
+  color: var(--text-primary) !important;
+}
+
+.text-gray-700 {
+  color: var(--text-primary) !important;
+}
+
+.text-gray-600 {
+  color: var(--text-secondary) !important;
+}
+
+.text-gray-500 {
+  color: var(--text-muted) !important;
+}
+
+.border-gray-200 {
+  border-color: var(--border-color) !important;
+}
+
+.border-gray-300 {
+  border-color: var(--border-color) !important;
+}
+
+nav.bg-white {
+  background-color: var(--bg-primary) !important;
+  box-shadow: 0 1px 3px var(--shadow);
+}
+
+/* Theme toggle button */
+#theme-toggle {
+  background-color: var(--bg-tertiary);
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+#theme-toggle:hover {
+  background-color: var(--bg-secondary);
+  transform: scale(1.1);
+}
+
 /* Fix for full height layouts */
 html, body {
   height: 100%;
