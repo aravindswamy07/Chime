@@ -3,9 +3,8 @@ const ChatRoom = require('../models/ChatRoom');
 const { getFileCategory, formatFileSize, uploadToSupabase, supportsInlineViewing } = require('../config/fileUpload');
 const supabase = require('../config/db');
 
-// Store for upload sessions (in production, use Redis or database)
-const uploadSessions = new Map();
-const uploadChunks = new Map();
+// Temporary in-memory storage for chunks during upload (per-request basis)
+const activeChunks = new Map();
 
 // Controller for messages
 const messageController = {
@@ -250,29 +249,25 @@ const messageController = {
       }
 
       // Check if user has access to room
-      const roomCheck = await supabase
-        .from('room_members')
-        .select('*')
-        .eq('room_id', roomId)
-        .eq('user_id', userId)
-        .single();
-
-      if (roomCheck.error && roomCheck.error.code !== 'PGRST116') {
-        return res.status(500).json({
+      const room = await ChatRoom.getById(roomId);
+      if (!room) {
+        return res.status(404).json({
           success: false,
-          message: 'Database error checking room access'
+          message: 'Room not found'
         });
       }
 
-      if (!roomCheck.data) {
+      const isMember = await ChatRoom.isMember(roomId, userId);
+      if (!isMember) {
         return res.status(403).json({
           success: false,
-          message: 'Access denied to this room'
+          message: 'You must be a member of the room to upload files'
         });
       }
 
-      // Create session
-      const session = {
+      // For serverless compatibility, we'll store session info in the response
+      // and reconstruct it on each chunk upload
+      const sessionData = {
         sessionId,
         roomId,
         userId,
@@ -281,22 +276,21 @@ const messageController = {
         fileType,
         totalChunks,
         chunkSize,
-        caption,
-        encrypt,
-        createdAt: new Date(),
-        receivedChunks: new Set(),
-        status: 'active'
+        caption: caption || null,
+        encrypt: encrypt || false,
+        createdAt: new Date().toISOString()
       };
 
-      uploadSessions.set(sessionId, session);
-      uploadChunks.set(sessionId, new Map());
+      // Initialize chunks storage for this session
+      activeChunks.set(sessionId, new Map());
 
       res.json({
         success: true,
         data: {
           sessionId,
           totalChunks,
-          chunkSize
+          chunkSize,
+          sessionData: Buffer.from(JSON.stringify(sessionData)).toString('base64') // Encode session data
         }
       });
 
@@ -312,48 +306,52 @@ const messageController = {
   // Upload chunk
   async uploadChunk(req, res) {
     try {
-      const { sessionId, chunkIndex, totalChunks } = req.body;
+      const { sessionId, chunkIndex, totalChunks, sessionData } = req.body;
       const chunk = req.file;
       const { roomId } = req.params;
 
-      if (!chunk || !sessionId || chunkIndex === undefined) {
+      if (!chunk || !sessionId || chunkIndex === undefined || !sessionData) {
         return res.status(400).json({
           success: false,
-          message: 'Missing chunk data or session ID'
+          message: 'Missing chunk data, session ID, or session data'
         });
       }
 
-      const session = uploadSessions.get(sessionId);
-      if (!session) {
-        return res.status(404).json({
+      // Decode session data
+      let session;
+      try {
+        session = JSON.parse(Buffer.from(sessionData, 'base64').toString());
+      } catch (error) {
+        return res.status(400).json({
           success: false,
-          message: 'Upload session not found'
+          message: 'Invalid session data'
         });
       }
 
-      if (session.roomId !== roomId) {
+      // Validate session
+      if (session.sessionId !== sessionId || session.roomId !== roomId) {
         return res.status(403).json({
           success: false,
-          message: 'Session room mismatch'
+          message: 'Session validation failed'
         });
       }
 
       const chunkIndexNum = parseInt(chunkIndex);
       console.log(`Received chunk ${chunkIndexNum + 1}/${session.totalChunks} for session ${sessionId}`);
 
-      // Store chunk
-      const chunks = uploadChunks.get(sessionId);
+      // Store chunk in memory for this session
+      if (!activeChunks.has(sessionId)) {
+        activeChunks.set(sessionId, new Map());
+      }
+      
+      const chunks = activeChunks.get(sessionId);
       chunks.set(chunkIndexNum, chunk.buffer);
-      session.receivedChunks.add(chunkIndexNum);
-
-      // Clean up old sessions (older than 1 hour)
-      cleanupOldSessions();
 
       res.json({
         success: true,
         data: {
           chunkIndex: chunkIndexNum,
-          received: session.receivedChunks.size,
+          received: chunks.size,
           total: session.totalChunks
         }
       });
@@ -370,38 +368,56 @@ const messageController = {
   // Finalize chunked upload
   async finalizeUpload(req, res) {
     try {
-      const { sessionId } = req.body;
+      const { sessionId, sessionData } = req.body;
       const { roomId } = req.params;
 
-      const session = uploadSessions.get(sessionId);
-      if (!session) {
-        return res.status(404).json({
-          success: false,
-          message: 'Upload session not found'
-        });
-      }
-
-      if (session.roomId !== roomId) {
-        return res.status(403).json({
-          success: false,
-          message: 'Session room mismatch'
-        });
-      }
-
-      // Check if all chunks received
-      if (session.receivedChunks.size !== session.totalChunks) {
+      if (!sessionId || !sessionData) {
         return res.status(400).json({
           success: false,
-          message: `Missing chunks: received ${session.receivedChunks.size}/${session.totalChunks}`
+          message: 'Missing session ID or session data'
+        });
+      }
+
+      // Decode session data
+      let session;
+      try {
+        session = JSON.parse(Buffer.from(sessionData, 'base64').toString());
+      } catch (error) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid session data'
+        });
+      }
+
+      // Validate session
+      if (session.sessionId !== sessionId || session.roomId !== roomId) {
+        return res.status(403).json({
+          success: false,
+          message: 'Session validation failed'
         });
       }
 
       console.log(`Finalizing upload for session ${sessionId}: ${session.fileName}`);
 
+      // Get chunks from memory
+      const chunks = activeChunks.get(sessionId);
+      if (!chunks) {
+        return res.status(400).json({
+          success: false,
+          message: 'Chunks not found in memory. Upload may have timed out.'
+        });
+      }
+
+      // Check if all chunks received
+      if (chunks.size !== session.totalChunks) {
+        return res.status(400).json({
+          success: false,
+          message: `Missing chunks: received ${chunks.size}/${session.totalChunks}`
+        });
+      }
+
       // Reassemble file from chunks
-      const chunks = uploadChunks.get(sessionId);
       const sortedChunks = [];
-      
       for (let i = 0; i < session.totalChunks; i++) {
         const chunk = chunks.get(i);
         if (!chunk) {
@@ -428,41 +444,27 @@ const messageController = {
       });
 
       // Create message record
-      const messageData = {
-        room_id: roomId,
-        sender_id: session.userId,
+      const message = await Message.create({
+        roomId,
+        senderId: session.userId,
         content: session.caption || null,
-        message_type: 'file',
-        file_name: session.fileName,
-        file_size: session.fileSize,
-        file_type: session.fileType,
-        file_url: uploadResult.publicUrl,
-        preview_url: uploadResult.previewUrl,
-        is_encrypted: uploadResult.isEncrypted,
-        file_category: uploadResult.fileCategory,
-        supports_inline_view: uploadResult.needsPreview
-      };
+        fileName: session.fileName,
+        fileSize: session.fileSize,
+        fileType: session.fileType,
+        fileUrl: uploadResult.publicUrl,
+        previewUrl: uploadResult.previewUrl,
+        isEncrypted: uploadResult.isEncrypted,
+        fileCategory: uploadResult.fileCategory,
+        supportsInlineView: uploadResult.needsPreview,
+        messageType: 'file'
+      });
 
-      const { data: message, error: messageError } = await supabase
-        .from('messages')
-        .insert(messageData)
-        .select(`
-          *,
-          users:sender_id (
-            id,
-            username
-          )
-        `)
-        .single();
-
-      if (messageError) {
-        console.error('Error creating message:', messageError);
-        throw messageError;
+      if (!message) {
+        throw new Error('Failed to create message');
       }
 
-      // Cleanup session
-      uploadSessions.delete(sessionId);
-      uploadChunks.delete(sessionId);
+      // Cleanup chunks from memory
+      activeChunks.delete(sessionId);
 
       console.log(`Upload completed successfully: ${session.fileName}`);
 
@@ -505,19 +507,6 @@ function getFileConfigForType(mimeType) {
   };
   
   return allowedTypes[mimeType] || { maxSize: 120 * 1024 * 1024, needsPreview: false };
-}
-
-// Cleanup old sessions (call periodically)
-function cleanupOldSessions() {
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  
-  for (const [sessionId, session] of uploadSessions) {
-    if (session.createdAt < oneHourAgo) {
-      console.log(`Cleaning up old session: ${sessionId}`);
-      uploadSessions.delete(sessionId);
-      uploadChunks.delete(sessionId);
-    }
-  }
 }
 
 module.exports = messageController; 

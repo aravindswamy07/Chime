@@ -1439,17 +1439,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     console.log(`Starting chunked upload: ${fileName}, ${totalChunks} chunks of ${window.formatFileSize(chunkSize)} each`);
     
-    // Store upload session info
-    const uploadSession = {
-      sessionId,
-      fileName,
-      fileSize: file.size,
-      totalChunks,
-      chunkSize,
-      uploadedChunks: new Set(),
-      startTime: Date.now()
-    };
-    
     // Update UI for chunked upload
     uploadFileButton.disabled = true;
     uploadFileButton.innerHTML = `
@@ -1488,6 +1477,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const sessionData = await sessionResponse.json();
       console.log('Upload session created:', sessionData);
       
+      // Store upload session info with session data from server
+      const uploadSession = {
+        sessionId,
+        fileName,
+        fileSize: file.size,
+        totalChunks,
+        chunkSize,
+        uploadedChunks: new Set(),
+        startTime: Date.now(),
+        sessionData: sessionData.data.sessionData // Store encoded session data
+      };
+      
       // Upload chunks in parallel (limited concurrency)
       await uploadChunksInParallel(file, uploadSession);
       
@@ -1498,7 +1499,10 @@ document.addEventListener('DOMContentLoaded', () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ sessionId })
+        body: JSON.stringify({ 
+          sessionId,
+          sessionData: uploadSession.sessionData // Pass session data to finalize
+        })
       });
       
       if (!finalizeResponse.ok) {
@@ -1552,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
   // Upload chunks with parallel processing and progress tracking
   async function uploadChunksInParallel(file, uploadSession) {
-    const { sessionId, totalChunks, chunkSize } = uploadSession;
+    const { sessionId, totalChunks, chunkSize, sessionData } = uploadSession;
     let uploadedChunks = 0;
     
     // Create chunk upload tasks
@@ -1575,6 +1579,7 @@ document.addEventListener('DOMContentLoaded', () => {
       formData.append('sessionId', sessionId);
       formData.append('chunkIndex', chunkIndex);
       formData.append('totalChunks', totalChunks);
+      formData.append('sessionData', sessionData); // Pass session data with each chunk
       
       const response = await fetch(`/api/rooms/${roomId}/upload/chunk`, {
         method: 'POST',
