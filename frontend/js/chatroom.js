@@ -1,533 +1,621 @@
-// Chat room page JavaScript - Clean Telegram-style implementation
-
-// Theme management
-let isDarkMode = localStorage.getItem('darkMode') === 'true' || true;
-
-function toggleTheme() {
-  isDarkMode = !isDarkMode;
-  localStorage.setItem('darkMode', isDarkMode.toString());
-  updateTheme();
-}
-
-function updateTheme() {
-  const body = document.body;
-  const themeToggle = document.getElementById('theme-toggle');
-  
-  if (isDarkMode) {
-    body.classList.remove('light-mode');
-    body.classList.add('dark-mode');
-    if (themeToggle) {
-      themeToggle.innerHTML = `
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-        </svg>
-      `;
+// Discord-style Server Chat JavaScript
+class ChimeServer {
+    constructor() {
+        this.currentUser = null;
+        this.currentRoom = null;
+        this.currentChannel = 'general';
+        this.channelType = 'text';
+        this.messages = new Map();
+        this.members = new Map();
+        this.socket = null;
+        this.callManager = null;
+        this.voiceConnected = false;
+        
+        this.init();
     }
-  } else {
-    body.classList.remove('dark-mode');
-    body.classList.add('light-mode');
-    if (themeToggle) {
-      themeToggle.innerHTML = `
-        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-        </svg>
-      `;
+
+    async init() {
+        await this.checkAuth();
+        this.setupEventListeners();
+        this.connectWebSocket();
+        await this.loadRoomData();
+        await this.loadMessages();
+        await this.loadMembers();
+        this.initializeCallManager();
     }
-  }
+
+    async checkAuth() {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = 'login.html';
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auth/verify', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error('Token invalid');
+            }
+            
+            const data = await response.json();
+            this.currentUser = data.user;
+        } catch (error) {
+            console.error('Auth check failed:', error);
+            localStorage.removeItem('token');
+            window.location.href = 'login.html';
+        }
+    }
+
+    setupEventListeners() {
+        // Message input
+        const messageInput = document.getElementById('message-input');
+        if (messageInput) {
+            messageInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+        }
+
+        // Channel switching
+        document.querySelectorAll('.channel-item').forEach(item => {
+            item.addEventListener('click', () => {
+                this.switchChannel(item);
+            });
+        });
+
+        // Voice channel connection
+        document.querySelectorAll('[data-channel-type="voice"]').forEach(item => {
+            const connectBtn = item.querySelector('button[title="Connect"]');
+            if (connectBtn) {
+                connectBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.toggleVoiceConnection(item.dataset.channelName);
+                });
+            }
+        });
+
+        // Members toggle
+        document.getElementById('members-toggle-button').addEventListener('click', () => {
+            this.toggleMembersPanel();
+        });
+
+        // Call buttons
+        document.getElementById('voice-call-button').addEventListener('click', () => {
+            this.startVoiceCall();
+        });
+
+        document.getElementById('video-call-button').addEventListener('click', () => {
+            this.startVideoCall();
+        });
+
+        // User controls
+        document.getElementById('user-mute-button').addEventListener('click', () => {
+            this.toggleMute();
+        });
+
+        document.getElementById('user-deafen-button').addEventListener('click', () => {
+            this.toggleDeafen();
+        });
+
+        document.getElementById('user-settings-button').addEventListener('click', () => {
+            this.openSettings();
+        });
+
+        // Members section click
+        document.getElementById('members-section').addEventListener('click', () => {
+            this.toggleMembersPanel();
+        });
+    }
+
+    connectWebSocket() {
+        const token = localStorage.getItem('token');
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${window.location.host}?token=${token}`;
+        
+        this.socket = new WebSocket(wsUrl);
+        
+        this.socket.onopen = () => {
+            console.log('WebSocket connected');
+            if (this.currentRoom) {
+                this.socket.send(JSON.stringify({
+                    type: 'join_room',
+                    roomId: this.currentRoom.id
+                }));
+            }
+        };
+        
+        this.socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            this.handleWebSocketMessage(data);
+        };
+        
+        this.socket.onclose = () => {
+            console.log('WebSocket disconnected');
+            setTimeout(() => this.connectWebSocket(), 3000);
+        };
+        
+        this.socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+    }
+
+    handleWebSocketMessage(data) {
+        switch (data.type) {
+            case 'new_message':
+                this.handleNewMessage(data.message);
+                break;
+            case 'user_joined':
+                this.handleUserJoined(data.user);
+                break;
+            case 'user_left':
+                this.handleUserLeft(data.userId);
+                break;
+            case 'voice_state_update':
+                this.handleVoiceStateUpdate(data);
+                break;
+            default:
+                console.log('Unknown message type:', data.type);
+        }
+    }
+
+    async loadRoomData() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('id');
+        
+        if (!roomId) {
+            window.location.href = 'home.html';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/rooms/${roomId}`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                this.currentRoom = result.data;
+                this.updateServerInfo();
+            } else {
+                throw new Error('Failed to load room');
+            }
+        } catch (error) {
+            console.error('Failed to load room:', error);
+            window.location.href = 'home.html';
+        }
+    }
+
+    updateServerInfo() {
+        if (this.currentRoom) {
+            document.getElementById('server-name').textContent = this.currentRoom.name;
+            document.getElementById('server-icon').textContent = this.currentRoom.name.charAt(0).toUpperCase();
+            
+            // Update current user info
+            if (this.currentUser) {
+                document.getElementById('current-username').textContent = this.currentUser.username;
+                
+                const avatar = document.getElementById('current-user-avatar');
+                if (this.currentUser.avatar_url) {
+                    avatar.src = this.currentUser.avatar_url;
+                } else {
+                    avatar.src = `https://via.placeholder.com/32/5865f2/ffffff?text=${this.currentUser.username.charAt(0).toUpperCase()}`;
+                }
+            }
+        }
+    }
+
+    async loadMessages() {
+        if (!this.currentRoom) return;
+
+        try {
+            const response = await fetch(`/api/rooms/${this.currentRoom.id}/messages`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                this.messages.set(this.currentChannel, result.data || []);
+                this.displayMessages();
+            }
+        } catch (error) {
+            console.error('Failed to load messages:', error);
+        }
+    }
+
+    async loadMembers() {
+        if (!this.currentRoom) return;
+
+        try {
+            const response = await fetch(`/api/rooms/${this.currentRoom.id}/members`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                const members = result.data || [];
+                
+                members.forEach(member => {
+                    this.members.set(member.id, member);
+                });
+                
+                this.updateMembersList();
+                this.updateMemberCounts();
+            }
+        } catch (error) {
+            console.error('Failed to load members:', error);
+        }
+    }
+
+    displayMessages() {
+        const messagesContainer = document.getElementById('messages-container');
+        const welcomeMessage = document.getElementById('welcome-message');
+        const channelMessages = this.messages.get(this.currentChannel) || [];
+
+        if (channelMessages.length === 0) {
+            if (welcomeMessage) {
+                welcomeMessage.style.display = 'flex';
+            }
+            return;
+        }
+
+        if (welcomeMessage) {
+            welcomeMessage.style.display = 'none';
+        }
+
+        // Clear existing messages except welcome
+        const existingMessages = messagesContainer.querySelectorAll('.message-bubble');
+        existingMessages.forEach(msg => msg.remove());
+
+        channelMessages.forEach(message => {
+            const messageElement = this.createMessageElement(message);
+            messagesContainer.appendChild(messageElement);
+        });
+
+        this.scrollToBottom();
+    }
+
+    createMessageElement(message) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message-bubble flex items-start space-x-3 p-2 rounded hover:bg-gray-800 hover:bg-opacity-30';
+
+        const isCurrentUser = message.user_id === this.currentUser.id;
+        const user = isCurrentUser ? this.currentUser : this.members.get(message.user_id);
+
+        const timestamp = new Date(message.created_at).toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
+
+        let contentHtml = '';
+        if (message.message_type === 'file') {
+            contentHtml = this.createFileMessageContent(message);
+        } else {
+            contentHtml = `<div class="text-sm mt-1" style="color: var(--discord-text-primary);">
+                ${this.formatMessageContent(message.content)}
+            </div>`;
+        }
+
+        messageDiv.innerHTML = `
+            <div class="user-avatar">
+                <img src="${user?.avatar_url || `https://via.placeholder.com/40/5865f2/ffffff?text=${user?.username?.charAt(0).toUpperCase() || 'U'}`}" 
+                     alt="${user?.username || 'User'}" class="w-10 h-10 rounded-full">
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="flex items-baseline space-x-2">
+                    <span class="text-sm font-semibold">${user?.username || 'Unknown User'}</span>
+                    <span class="text-xs" style="color: var(--discord-text-muted);">${timestamp}</span>
+                </div>
+                ${contentHtml}
+            </div>
+        `;
+        
+        return messageDiv;
+    }
+
+    createFileMessageContent(message) {
+        const fileIcon = this.getFileIcon(message.file_type);
+        const fileSize = this.formatFileSize(message.file_size);
+        
+        return `
+            <div class="mt-2 p-3 rounded-lg border" style="background-color: var(--discord-bg-tertiary); border-color: var(--discord-border);">
+                <div class="flex items-center space-x-3">
+                    ${fileIcon}
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium truncate">${message.file_name}</div>
+                        <div class="text-xs" style="color: var(--discord-text-muted);">${fileSize}</div>
+                    </div>
+                    <a href="${message.file_url}" download="${message.file_name}" 
+                       class="p-2 rounded hover:bg-gray-600 transition-colors" title="Download">
+                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                        </svg>
+                    </a>
+                </div>
+                ${message.content ? `<div class="mt-2 text-sm">${this.formatMessageContent(message.content)}</div>` : ''}
+            </div>
+        `;
+    }
+
+    formatMessageContent(content) {
+        if (!content) return '';
+        
+        return content
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code style="background-color: var(--discord-bg-tertiary); padding: 2px 4px; border-radius: 3px;">$1</code>')
+            .replace(/~~(.*?)~~/g, '<del>$1</del>');
+    }
+
+    getFileIcon(fileType) {
+        if (fileType?.startsWith('image/')) {
+            return `<svg class="w-6 h-6 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+            </svg>`;
+        } else if (fileType === 'application/pdf') {
+            return `<svg class="w-6 h-6 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v1h-1.5V7h3v1.5zM9 9.5h1v-1H9v1z"/>
+            </svg>`;
+        } else {
+            return `<svg class="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6,2C4.89,2 4,2.89 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2H6Z"/>
+            </svg>`;
+        }
+    }
+
+    formatFileSize(bytes) {
+        if (!bytes) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    async sendMessage() {
+        const messageInput = document.getElementById('message-input');
+        const content = messageInput.value.trim();
+        
+        if (!content || !this.currentRoom) return;
+
+        try {
+            const response = await fetch(`/api/rooms/${this.currentRoom.id}/messages`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ content })
+            });
+
+            if (response.ok) {
+                messageInput.value = '';
+                // Message will be added via WebSocket
+            } else {
+                throw new Error('Failed to send message');
+            }
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            alert('Failed to send message. Please try again.');
+        }
+    }
+
+    handleNewMessage(message) {
+        const channelMessages = this.messages.get(this.currentChannel) || [];
+        channelMessages.push(message);
+        this.messages.set(this.currentChannel, channelMessages);
+        
+        if (this.channelType === 'text') {
+            const messageElement = this.createMessageElement(message);
+            const messagesContainer = document.getElementById('messages-container');
+            messagesContainer.appendChild(messageElement);
+            this.scrollToBottom();
+        }
+    }
+
+    switchChannel(channelElement) {
+        // Remove active class from all channels
+        document.querySelectorAll('.channel-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        // Add active class to selected channel
+        channelElement.classList.add('active');
+
+        // Update current channel
+        this.currentChannel = channelElement.dataset.channelName || 'general';
+        this.channelType = channelElement.dataset.channelType || 'text';
+
+        // Update header
+        this.updateChannelHeader();
+
+        // Load messages for this channel
+        if (this.channelType === 'text') {
+            this.displayMessages();
+        }
+    }
+
+    updateChannelHeader() {
+        const channelIcon = document.getElementById('channel-icon');
+        const channelName = document.getElementById('channel-name');
+        const channelDescription = document.getElementById('channel-description');
+
+        if (this.channelType === 'voice') {
+            channelIcon.innerHTML = `<path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"/>`;
+            channelDescription.textContent = 'Voice Channel';
+        } else {
+            channelIcon.innerHTML = `<path d="M5.8 21L7.4 14L2 9.2L9.2 8.6L12 2L14.8 8.6L22 9.2L18.8 12H18C17.3 12 16.6 12.1 15.9 12.4L18.1 10.5L13.7 10.1L12 6.1L10.3 10.1L5.9 10.5L9.2 13.4L8.2 17.7L12 15.4L12.5 15.7C12.3 16.2 12.1 16.8 12.1 17.3L5.8 21M17 14V17H14V19H17V22H19V19H22V17H19V14H17Z"/>`;
+            channelDescription.textContent = 'Welcome to the server!';
+        }
+
+        channelName.textContent = this.currentChannel;
+        
+        // Update message input placeholder
+        const messageInput = document.getElementById('message-input');
+        if (messageInput) {
+            messageInput.placeholder = `Message #${this.currentChannel}`;
+        }
+    }
+
+    toggleVoiceConnection(channelName) {
+        if (this.voiceConnected) {
+            this.disconnectVoice();
+        } else {
+            this.connectVoice(channelName);
+        }
+    }
+
+    connectVoice(channelName) {
+        // Implement voice connection logic here
+        this.voiceConnected = true;
+        this.updateVoiceUI();
+        console.log(`Connected to voice channel: ${channelName}`);
+    }
+
+    disconnectVoice() {
+        // Implement voice disconnection logic here
+        this.voiceConnected = false;
+        this.updateVoiceUI();
+        console.log('Disconnected from voice channel');
+    }
+
+    updateVoiceUI() {
+        const voiceChannels = document.querySelectorAll('[data-channel-type="voice"]');
+        voiceChannels.forEach(channel => {
+            if (this.voiceConnected) {
+                channel.classList.add('voice-connected');
+            } else {
+                channel.classList.remove('voice-connected');
+            }
+        });
+    }
+
+    updateMembersList() {
+        const onlineList = document.getElementById('online-members-list');
+        const offlineList = document.getElementById('offline-members-list');
+        
+        onlineList.innerHTML = '';
+        offlineList.innerHTML = '';
+
+        this.members.forEach(member => {
+            const memberElement = this.createMemberElement(member);
+            if (member.status === 'online') {
+                onlineList.appendChild(memberElement);
+            } else {
+                offlineList.appendChild(memberElement);
+            }
+        });
+    }
+
+    createMemberElement(member) {
+        const memberDiv = document.createElement('div');
+        memberDiv.className = 'flex items-center px-2 py-1 rounded hover:bg-gray-600 cursor-pointer';
+
+        const isOnline = member.status === 'online';
+        
+        memberDiv.innerHTML = `
+            <div class="user-avatar ${isOnline ? '' : 'offline'}">
+                <img src="${member.avatar_url || `https://via.placeholder.com/32/5865f2/ffffff?text=${member.username.charAt(0).toUpperCase()}`}" 
+                     alt="${member.username}" class="w-8 h-8 rounded-full">
+            </div>
+            <div class="ml-3 flex-1">
+                <div class="text-sm font-medium">${member.username}</div>
+                ${member.activity ? `<div class="text-xs" style="color: var(--discord-text-muted);">${member.activity}</div>` : ''}
+            </div>
+        `;
+
+        return memberDiv;
+    }
+
+    updateMemberCounts() {
+        const onlineCount = Array.from(this.members.values()).filter(m => m.status === 'online').length;
+        const totalCount = this.members.size;
+        
+        document.getElementById('online-members-count').textContent = onlineCount;
+        document.getElementById('offline-members-count').textContent = totalCount - onlineCount;
+        document.getElementById('total-members').textContent = totalCount;
+    }
+
+    toggleMembersPanel() {
+        const membersPanel = document.getElementById('members-sidebar');
+        if (membersPanel.classList.contains('hidden')) {
+            membersPanel.classList.remove('hidden');
+            membersPanel.classList.add('flex');
+        } else {
+            membersPanel.classList.add('hidden');
+            membersPanel.classList.remove('flex');
+        }
+    }
+
+    startVoiceCall() {
+        if (this.callManager) {
+            this.callManager.initiateCall('voice');
+        }
+    }
+
+    startVideoCall() {
+        if (this.callManager) {
+            this.callManager.initiateCall('video');
+        }
+    }
+
+    toggleMute() {
+        // Implement mute toggle
+        console.log('Toggle mute');
+    }
+
+    toggleDeafen() {
+        // Implement deafen toggle
+        console.log('Toggle deafen');
+    }
+
+    openSettings() {
+        // Implement settings modal
+        console.log('Open settings');
+    }
+
+    initializeCallManager() {
+        // Initialize call manager if available
+        if (typeof CallManager !== 'undefined' && this.currentRoom) {
+            this.callManager = new CallManager(this.currentRoom.id);
+        }
+    }
+
+    scrollToBottom() {
+        const messagesContainer = document.getElementById('messages-container');
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    handleUserJoined(user) {
+        this.members.set(user.id, user);
+        this.updateMembersList();
+        this.updateMemberCounts();
+    }
+
+    handleUserLeft(userId) {
+        this.members.delete(userId);
+        this.updateMembersList();
+        this.updateMemberCounts();
+    }
+
+    handleVoiceStateUpdate(data) {
+        // Handle voice state updates
+        console.log('Voice state update:', data);
+    }
 }
 
-// File size formatter
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// Get file icon based on type
-function getFileIcon(fileType) {
-  if (fileType.startsWith('image/')) {
-    return `<svg class="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-    </svg>`;
-  } else if (fileType === 'application/pdf') {
-    return `<svg class="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>`;
-  } else if (fileType.includes('video/')) {
-    return `<svg class="w-6 h-6 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-    </svg>`;
-  } else if (fileType.includes('audio/')) {
-    return `<svg class="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-    </svg>`;
-  } else {
-    return `<svg class="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>`;
-  }
-}
-
-// Simple file upload to Supabase Storage
-async function uploadFileToSupabase(file, roomId, token) {
-  const maxFileSize = 500 * 1024 * 1024; // 500MB limit
-  
-  if (file.size > maxFileSize) {
-    throw new Error('File size exceeds 500MB limit');
-  }
-  
-  // Create FormData for upload
-  const formData = new FormData();
-  formData.append('file', file);
-  formData.append('roomId', roomId);
-  
-  // Upload to Supabase via backend API
-  const response = await fetch(`/api/upload/file`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`
-    },
-    body: formData
-  });
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Upload failed' }));
-    throw new Error(error.message || 'Upload failed');
-  }
-  
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.message || 'Upload failed');
-  }
-  
-  return result.data; // Returns { url, fileName, fileSize, fileType }
-}
-
-// Send file message
-async function sendFileMessage(roomId, fileData, caption, token) {
-  const response = await fetch(`/api/rooms/${roomId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      type: 'file',
-      content: caption || null,
-      file_name: fileData.fileName,
-      file_size: fileData.fileSize,
-      file_type: fileData.fileType,
-      file_url: fileData.url
-    })
-  });
-  
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.message || 'Failed to send file message');
-  }
-  
-  return result.data;
-}
-
+// Initialize the Discord-style server interface
 document.addEventListener('DOMContentLoaded', () => {
-  // Initialize theme
-  updateTheme();
-  
-  // Check if user is logged in
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
-  
-  if (!token || !user.id) {
-    window.location.href = 'index.html';
-    return;
-  }
-
-  // Get room ID from URL
-  const urlParams = new URLSearchParams(window.location.search);
-  const roomId = urlParams.get('id');
-  
-  if (!roomId) {
-    window.location.href = 'home.html';
-    return;
-  }
-
-  // DOM elements
-  const usernameDisplay = document.getElementById('username-display');
-  const themeToggle = document.getElementById('theme-toggle');
-  const logoutButton = document.getElementById('logout-button');
-  const roomName = document.getElementById('room-name');
-  const roomDescription = document.getElementById('room-description');
-  const memberCount = document.getElementById('member-count');
-  const maxMembers = document.getElementById('max-members');
-  const roomMembersButton = document.getElementById('room-members-button');
-  const leaveRoomButton = document.getElementById('leave-room-button');
-  const deleteRoomButton = document.getElementById('delete-room-button');
-  const messagesContainer = document.getElementById('messages-container');
-  const messageForm = document.getElementById('message-form');
-  const messageInput = document.getElementById('message-input');
-  const fileInput = document.getElementById('file-input');
-  const fileButton = document.getElementById('file-button');
-  const membersModal = document.getElementById('members-modal');
-  const closeMembersModalButton = document.getElementById('close-members-modal-button');
-  const membersList = document.getElementById('members-list');
-
-  // Room and message data
-  let roomData = null;
-  let messages = [];
-  let isAdmin = false;
-
-  // Display username
-  usernameDisplay.textContent = user.username;
-
-  // Event listeners
-  themeToggle.addEventListener('click', toggleTheme);
-  logoutButton.addEventListener('click', logout);
-  roomMembersButton.addEventListener('click', openMembersModal);
-  closeMembersModalButton.addEventListener('click', closeMembersModal);
-  leaveRoomButton.addEventListener('click', leaveRoom);
-  deleteRoomButton.addEventListener('click', deleteRoom);
-  messageForm.addEventListener('submit', sendMessage);
-  fileButton.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', handleFileUpload);
-
-  // Initialize
-  fetchRoomDetails();
-  initializeRealtime();
-
-  // Function to fetch room details
-  async function fetchRoomDetails() {
-    try {
-      const response = await fetch(`/api/rooms/${roomId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch room details');
-      }
-      
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to fetch room details');
-      }
-      
-      roomData = data.data;
-      
-      // Display room details
-      roomName.textContent = roomData.name;
-      roomDescription.textContent = roomData.description || 'No description';
-      memberCount.textContent = roomData.members.length;
-      maxMembers.textContent = roomData.max_members;
-      
-      // Check if user is admin
-      isAdmin = roomData.admin_id === user.id;
-      
-      // Show/hide delete button based on admin status
-      deleteRoomButton.style.display = isAdmin ? 'block' : 'none';
-      
-      // Fetch messages
-      fetchMessages();
-      
-    } catch (error) {
-      alert(`Error loading room: ${error.message}`);
-      window.location.href = 'home.html';
-    }
-  }
-
-  // Function to fetch messages
-  async function fetchMessages() {
-    try {
-      const response = await fetch(`/api/rooms/${roomId}/messages/recent`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch messages');
-      }
-      
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to fetch messages');
-      }
-      
-      messages = data.data || [];
-      displayMessages();
-      
-    } catch (error) {
-      messagesContainer.innerHTML = `<div class="flex items-center justify-center p-8 text-red-500">
-        Error loading messages: ${error.message}. <button onclick="location.reload()" class="ml-2 text-indigo-600 hover:underline">Retry</button>
-      </div>`;
-    }
-  }
-
-  // Function to display messages
-  function displayMessages() {
-    if (!messages || messages.length === 0) {
-      messagesContainer.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500">
-        No messages yet. Be the first to send a message!
-      </div>`;
-      return;
-    }
-    
-    const messagesHTML = messages.map(message => createMessageHTML(message)).join('');
-    messagesContainer.innerHTML = messagesHTML;
-    scrollToBottom();
-  }
-
-  // Function to create message HTML
-  function createMessageHTML(message) {
-    const isCurrentUser = message.sender_id === user.id;
-    const bubbleClass = isCurrentUser ? 'outgoing' : 'incoming';
-    const senderName = isCurrentUser ? 'You' : (message.users?.username || 'Unknown');
-    
-    // Handle file messages
-    if (message.message_type === 'file' && message.file_name) {
-      const fileIcon = getFileIcon(message.file_type);
-      const isImage = message.file_type && message.file_type.startsWith('image/');
-      
-      return `<div class="message-bubble ${bubbleClass}">
-        <div class="file-message">
-          ${isImage ? 
-            `<div class="image-preview mb-2">
-              <img src="${message.file_url}" alt="${message.file_name}" 
-                class="max-w-xs max-h-64 rounded-lg cursor-pointer hover:opacity-80" 
-                onclick="window.open('${message.file_url}', '_blank')">
-            </div>` :
-            `<div class="file-info flex items-center space-x-3 mb-2 p-3 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-all">
-              <div class="file-icon">${fileIcon}</div>
-              <div class="flex-1">
-                <div class="file-name font-medium">${message.file_name}</div>
-                <div class="file-size text-xs opacity-75">${formatFileSize(message.file_size || 0)}</div>
-              </div>
-              <a href="${message.file_url}" download="${message.file_name}" 
-                class="download-btn text-white hover:text-gray-200 transition-colors p-2 rounded-full hover:bg-white hover:bg-opacity-20">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-4-4m4 4l4-4m-6 5a7 7 0 1014 0H5a7 7 0 1114 0z" />
-                </svg>
-              </a>
-            </div>`
-          }
-          ${message.content ? `<div class="file-caption text-sm italic opacity-90 mt-2">${message.content}</div>` : ''}
-        </div>
-        <div class="message-meta">
-          ${senderName} • ${formatDate(message.created_at)}
-        </div>
-      </div>`;
-    }
-    
-    // Handle text messages
-    return `<div class="message-bubble ${bubbleClass}">
-      <div class="message-content">${message.content}</div>
-      <div class="message-meta">
-        ${senderName} • ${formatDate(message.created_at)}
-      </div>
-    </div>`;
-  }
-
-  // Function to send a text message
-  async function sendMessage(e) {
-    e.preventDefault();
-    
-    const content = messageInput.value.trim();
-    if (!content) return;
-    
-    messageInput.value = '';
-    
-    try {
-      const response = await fetch(`/api/rooms/${roomId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          type: 'text',
-          content: content 
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to send message');
-      }
-      
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.message || 'Failed to send message');
-      }
-      
-    } catch (error) {
-      alert(`Failed to send message: ${error.message}`);
-      messageInput.value = content; // Restore message
-    }
-  }
-
-  // Function to handle file upload - Telegram style
-  async function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    // Reset file input
-    fileInput.value = '';
-    
-    try {
-      // Show uploading indicator
-      const uploadingDiv = document.createElement('div');
-      uploadingDiv.className = 'message-bubble outgoing uploading';
-      uploadingDiv.innerHTML = `
-        <div class="flex items-center space-x-3 p-3 bg-blue-600 bg-opacity-20 rounded-lg">
-          <svg class="animate-spin w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          <div class="flex-1">
-            <div class="font-medium">Uploading ${file.name}</div>
-            <div class="text-sm opacity-75">${formatFileSize(file.size)}</div>
-          </div>
-        </div>
-      `;
-      messagesContainer.appendChild(uploadingDiv);
-      scrollToBottom();
-      
-      // Upload file to Supabase Storage
-      const fileData = await uploadFileToSupabase(file, roomId, token);
-      
-      // Get caption from user (optional)
-      const caption = prompt(`Add a caption for "${file.name}" (optional):`);
-      
-      // Send file message
-      await sendFileMessage(roomId, fileData, caption, token);
-      
-      // Remove uploading indicator
-      uploadingDiv.remove();
-      
-      // Refresh messages to show the new file
-      setTimeout(fetchMessages, 500);
-      
-    } catch (error) {
-      alert(`File upload failed: ${error.message}`);
-      
-      // Remove uploading indicator if it exists
-      const uploadingDiv = messagesContainer.querySelector('.uploading');
-      if (uploadingDiv) {
-        uploadingDiv.remove();
-      }
-    }
-  }
-
-  // Initialize realtime updates (simple polling for now)
-  function initializeRealtime() {
-    setInterval(() => {
-      fetchMessages();
-    }, 3000); // Check every 3 seconds
-  }
-
-  // Function to scroll to bottom
-  function scrollToBottom() {
-    setTimeout(() => {
-      messagesContainer.scrollTo({
-        top: messagesContainer.scrollHeight,
-        behavior: 'smooth'
-      });
-    }, 100);
-  }
-
-  // Function to format date
-  function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-
-  // Function to open members modal
-  function openMembersModal() {
-    if (!roomData || !roomData.members) return;
-    
-    const membersHTML = roomData.members.map(member => {
-      const isCurrentUser = member.id === user.id;
-      const isRoomAdmin = member.id === roomData.admin_id;
-      
-      return `<div class="member-item flex justify-between items-center p-3 border-b border-gray-200">
-        <div>
-          <span class="font-medium">${member.username}</span>
-          ${isRoomAdmin ? '<span class="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Admin</span>' : ''}
-          ${isCurrentUser ? '<span class="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded">You</span>' : ''}
-        </div>
-      </div>`;
-    }).join('');
-    
-    membersList.innerHTML = membersHTML;
-    membersModal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-  }
-
-  // Function to close members modal
-  function closeMembersModal() {
-    membersModal.classList.add('hidden');
-    document.body.style.overflow = '';
-  }
-
-  // Function to leave room
-  async function leaveRoom() {
-    if (!confirm('Are you sure you want to leave this room?')) return;
-    
-    try {
-      const response = await fetch(`/api/rooms/${roomId}/leave`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to leave room');
-      }
-      
-      window.location.href = 'home.html';
-      
-    } catch (error) {
-      alert(`Error leaving room: ${error.message}`);
-    }
-  }
-
-  // Function to delete room
-  async function deleteRoom() {
-    if (!isAdmin) {
-      alert('Only room admin can delete the room');
-      return;
-    }
-    
-    if (!confirm(`Are you sure you want to delete "${roomData?.name || 'this room'}"? This action cannot be undone.`)) {
-      return;
-    }
-    
-    try {
-      const response = await fetch(`/api/rooms/${roomId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to delete room');
-      }
-      
-      alert('Room deleted successfully');
-      window.location.href = 'home.html';
-      
-    } catch (error) {
-      alert(`Error deleting room: ${error.message}`);
-    }
-  }
-
-  // Function to handle logout
-  function logout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = 'index.html';
-  }
-
-  // Close modals when clicking outside
-  window.addEventListener('click', (e) => {
-    if (e.target === membersModal) {
-      closeMembersModal();
-    }
-  });
+    new ChimeServer();
 }); 
