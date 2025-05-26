@@ -8,6 +8,9 @@ const authRoutes = require('./routes/authRoutes');
 const chatRoomRoutes = require('./routes/chatRoomRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const callRoutes = require('./routes/callRoutes');
+const conversationRoutes = require('./routes/conversationRoutes');
+const userRoutes = require('./routes/userRoutes');
+const friendRoutes = require('./routes/friendRoutes');
 
 // Initialize Express app
 const app = express();
@@ -18,14 +21,14 @@ app.use(cors());
 
 // Reduced payload limits for Vercel serverless compatibility
 app.use(express.json({ 
-  limit: '4mb',  // Reduced for Vercel compatibility
+  limit: '10mb',  // Reduced for Vercel compatibility
   parameterLimit: 5000,
   extended: true
 }));
 
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '4mb',  // Reduced for Vercel compatibility
+  limit: '10mb',  // Reduced for Vercel compatibility
   parameterLimit: 5000
 }));
 
@@ -49,11 +52,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve static files from frontend directory
+app.use(express.static(path.join(__dirname, '../frontend')));
+
 // Route middleware
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', chatRoomRoutes);
-app.use('/api', messageRoutes);
-app.use('/api', callRoutes);
+app.use('/api/messages', messageRoutes);
+app.use('/api/calls', callRoutes);
+app.use('/api/conversations', conversationRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/friends', friendRoutes);
 
 // Test route
 app.get('/api/health', (req, res) => {

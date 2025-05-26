@@ -125,3 +125,146 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_call_sessions_updated_at BEFORE UPDATE ON call_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_call_participants_updated_at BEFORE UPDATE ON call_participants FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_call_invitations_updated_at BEFORE UPDATE ON call_invitations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column(); 
+
+-- ========================================
+-- CONVERSATION SYSTEM TABLES (Discord-like DMs)
+-- ========================================
+
+-- Conversations table for direct messages and group chats
+CREATE TABLE IF NOT EXISTS conversations (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    type VARCHAR(20) NOT NULL DEFAULT 'direct' CHECK (type IN ('direct', 'group')),
+    name VARCHAR(100), -- For group conversations
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Conversation participants
+CREATE TABLE IF NOT EXISTS conversation_participants (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_read_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(conversation_id, user_id)
+);
+
+-- Conversation messages
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT,
+    type VARCHAR(20) NOT NULL DEFAULT 'text' CHECK (type IN ('text', 'file', 'image', 'video', 'audio')),
+    file_name VARCHAR(255),
+    file_size BIGINT,
+    file_type VARCHAR(100),
+    file_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    edited_at TIMESTAMP WITH TIME ZONE,
+    deleted_at TIMESTAMP WITH TIME ZONE
+);
+
+-- ========================================
+-- CONVERSATION INDEXES
+-- ========================================
+
+-- Conversation participants indexes
+CREATE INDEX IF NOT EXISTS idx_conversation_participants_conversation_id ON conversation_participants(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_participants_user_id ON conversation_participants(user_id);
+
+-- Conversation messages indexes
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation_id ON conversation_messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_user_id ON conversation_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_created_at ON conversation_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_conversation_messages_type ON conversation_messages(type);
+
+-- Conversations indexes
+CREATE INDEX IF NOT EXISTS idx_conversations_type ON conversations(type);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at);
+
+-- ========================================
+-- CONVERSATION TRIGGERS
+-- ========================================
+
+-- Update conversation updated_at when messages are added
+CREATE OR REPLACE FUNCTION update_conversation_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE conversations 
+    SET updated_at = NOW() 
+    WHERE id = NEW.conversation_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_conversation_timestamp
+    AFTER INSERT ON conversation_messages
+    FOR EACH ROW
+    EXECUTE FUNCTION update_conversation_timestamp();
+
+-- ========================================
+-- CONVERSATION RLS POLICIES
+-- ========================================
+
+-- Enable RLS on conversation tables
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversation_messages ENABLE ROW LEVEL SECURITY;
+
+-- Conversations: Users can only see conversations they participate in
+CREATE POLICY "Users can view their conversations" ON conversations
+    FOR SELECT USING (
+        id IN (
+            SELECT conversation_id 
+            FROM conversation_participants 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can create conversations" ON conversations
+    FOR INSERT WITH CHECK (true);
+
+-- Conversation participants: Users can see participants of their conversations
+CREATE POLICY "Users can view conversation participants" ON conversation_participants
+    FOR SELECT USING (
+        conversation_id IN (
+            SELECT conversation_id 
+            FROM conversation_participants 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can add participants to conversations" ON conversation_participants
+    FOR INSERT WITH CHECK (
+        conversation_id IN (
+            SELECT conversation_id 
+            FROM conversation_participants 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+-- Conversation messages: Users can see messages in their conversations
+CREATE POLICY "Users can view conversation messages" ON conversation_messages
+    FOR SELECT USING (
+        conversation_id IN (
+            SELECT conversation_id 
+            FROM conversation_participants 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can send messages to their conversations" ON conversation_messages
+    FOR INSERT WITH CHECK (
+        conversation_id IN (
+            SELECT conversation_id 
+            FROM conversation_participants 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY "Users can edit their own messages" ON conversation_messages
+    FOR UPDATE USING (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own messages" ON conversation_messages
+    FOR DELETE USING (user_id = auth.uid()); 

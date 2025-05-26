@@ -142,6 +142,49 @@ const authController = {
         message: 'Server error'
       });
     }
+  },
+
+  // Logout user
+  async logout(req, res) {
+    try {
+      // In a stateless JWT system, logout is handled client-side
+      // by removing the token from storage
+      return res.status(200).json({
+        success: true,
+        message: 'Logged out successfully'
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error'
+      });
+    }
+  },
+
+  // Verify token and return user info
+  async verify(req, res) {
+    try {
+      // The user is already verified by the authenticateToken middleware
+      const user = req.user;
+      
+      return res.status(200).json({
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          avatar_url: user.avatar_url,
+          created_at: user.created_at
+        }
+      });
+    } catch (error) {
+      console.error('Verify error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Server error'
+      });
+    }
   }
 };
 

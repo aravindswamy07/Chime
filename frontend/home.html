@@ -3,169 +3,352 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chime - Home</title>
+  <title>Chime - Direct Messages</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <style>
+    :root {
+      --discord-bg-primary: #36393f;
+      --discord-bg-secondary: #2f3136;
+      --discord-bg-tertiary: #202225;
+      --discord-text-primary: #dcddde;
+      --discord-text-secondary: #b9bbbe;
+      --discord-text-muted: #72767d;
+      --discord-accent: #5865f2;
+      --discord-accent-hover: #4752c4;
+      --discord-green: #3ba55d;
+      --discord-orange: #faa61a;
+      --discord-red: #ed4245;
+      --discord-border: #40444b;
+    }
+
+    body {
+      background-color: var(--discord-bg-primary);
+      color: var(--discord-text-primary);
+      font-family: 'Whitney', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .discord-scrollbar::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .discord-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .discord-scrollbar::-webkit-scrollbar-thumb {
+      background-color: var(--discord-bg-tertiary);
+      border-radius: 4px;
+    }
+
+    .discord-scrollbar::-webkit-scrollbar-thumb:hover {
+      background-color: #1e2124;
+    }
+
+    .user-avatar {
+      position: relative;
+    }
+
+    .user-avatar::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 3px solid var(--discord-bg-secondary);
+      background-color: var(--discord-green);
+    }
+
+    .user-avatar.offline::after {
+      background-color: var(--discord-text-muted);
+    }
+
+    .dm-item:hover {
+      background-color: rgba(79, 84, 92, 0.16);
+    }
+
+    .dm-item.active {
+      background-color: rgba(79, 84, 92, 0.32);
+    }
+
+    .message-bubble {
+      transition: background-color 0.1s ease;
+    }
+
+    .message-bubble:hover {
+      background-color: rgba(4, 4, 5, 0.07);
+    }
+
+    .profile-banner {
+      background: linear-gradient(135deg, var(--discord-accent), var(--discord-orange));
+    }
+  </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-  <nav class="bg-white shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between h-16">
-        <div class="flex">
-          <div class="flex-shrink-0 flex items-center">
-            <h1 class="text-2xl font-bold text-indigo-600">Chime</h1>
-          </div>
+<body class="h-screen flex overflow-hidden">
+  <!-- Left Sidebar - Server List (Simplified) -->
+  <div class="w-16 flex flex-col items-center py-3 space-y-2" style="background-color: var(--discord-bg-tertiary);">
+    <!-- Chime Logo -->
+    <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg cursor-pointer transition-all duration-200 hover:rounded-2xl" style="background-color: var(--discord-accent);">
+      C
+    </div>
+    
+    <!-- Separator -->
+    <div class="w-8 h-0.5 rounded" style="background-color: var(--discord-border);"></div>
+    
+    <!-- Direct Messages Icon -->
+    <div class="w-12 h-12 rounded-full flex items-center justify-center text-green-400 cursor-pointer transition-all duration-200 hover:rounded-2xl hover:bg-green-600" style="background-color: var(--discord-bg-primary);">
+      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Main Content Area -->
+  <div class="flex-1 flex">
+    <!-- Direct Messages Sidebar -->
+    <div class="w-60 flex flex-col" style="background-color: var(--discord-bg-secondary);">
+      <!-- Header -->
+      <div class="h-12 flex items-center px-4 border-b" style="border-color: var(--discord-border);">
+        <svg class="w-6 h-6 mr-2" style="color: var(--discord-text-secondary);" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+        </svg>
+        <span class="font-semibold">Direct Messages</span>
+        <button id="create-dm-button" class="ml-auto p-1 rounded hover:bg-gray-600 transition-colors">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="p-2">
+        <div class="relative">
+          <input 
+            type="text" 
+            id="dm-search"
+            placeholder="Find or start a conversation"
+            class="w-full px-3 py-2 text-sm rounded border-0 focus:outline-none"
+            style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
+          >
+          <svg class="absolute right-3 top-2.5 w-4 h-4" style="color: var(--discord-text-muted);" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+          </svg>
         </div>
+      </div>
+
+      <!-- Friends Section -->
+      <div class="px-2">
+        <div class="dm-item flex items-center px-2 py-2 rounded cursor-pointer">
+          <svg class="w-8 h-8 mr-3" style="color: var(--discord-text-secondary);" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M16 4c0-1.11.89-2 2-2s2 .89 2 2-.89 2-2 2-2-.89-2-2zm4 18v-6h2.5l-2.54-7.63A2.996 2.996 0 0 0 17.06 7H16c-.8 0-1.54.37-2.01.99L12 10l-1.99-2.01A2.99 2.99 0 0 0 8 7H6.94c-1.4 0-2.59.93-2.9 2.37L1.5 17H4v6h2v-6h2.5l1.5-4.5L12 14.5l1.5-2L15.5 17H18v6h2z"/>
+          </svg>
+          <span class="font-medium">Friends</span>
+        </div>
+      </div>
+
+      <!-- Direct Messages List -->
+      <div class="flex-1 overflow-y-auto discord-scrollbar px-2">
+        <div class="text-xs font-semibold uppercase tracking-wide px-2 py-2" style="color: var(--discord-text-muted);">
+          Direct Messages
+        </div>
+        
+        <div id="dm-list" class="space-y-1">
+          <!-- DM items will be populated here -->
+        </div>
+      </div>
+
+      <!-- User Panel -->
+      <div class="h-14 flex items-center px-2 border-t" style="border-color: var(--discord-border); background-color: var(--discord-bg-tertiary);">
+        <div class="user-avatar">
+          <img id="current-user-avatar" src="https://via.placeholder.com/32/5865f2/ffffff?text=U" alt="User" class="w-8 h-8 rounded-full">
+        </div>
+        <div class="ml-2 flex-1 min-w-0">
+          <div id="current-username" class="text-sm font-semibold truncate">Loading...</div>
+          <div class="text-xs" style="color: var(--discord-text-muted);">#0001</div>
+        </div>
+        <div class="flex space-x-1">
+          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Mute">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            </svg>
+          </button>
+          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Deafen">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+            </svg>
+          </button>
+          <button id="settings-button" class="p-1 rounded hover:bg-gray-600 transition-colors" title="Settings">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="flex-1 flex flex-col">
+      <!-- Chat Header -->
+      <div id="chat-header" class="h-12 flex items-center px-4 border-b" style="border-color: var(--discord-border); background-color: var(--discord-bg-primary);">
         <div class="flex items-center">
-          <span id="username-display" class="text-gray-700 mr-4"></span>
-          <button id="logout-button" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded">
-            Logout
+          <svg class="w-6 h-6 mr-2" style="color: var(--discord-text-muted);" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+          </svg>
+          <span id="chat-title" class="font-semibold" style="color: var(--discord-text-primary);">Select a conversation</span>
+        </div>
+        
+        <div class="ml-auto flex items-center space-x-4">
+          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Start Voice Call">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5A1,1 0 0,1 21,16.5V20A1,1 0 0,1 20,21A17,17 0 0,1 3,4A1,1 0 0,1 4,3H7.5A1,1 0 0,1 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z"/>
+            </svg>
+          </button>
+          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Start Video Call">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17,10.5V7A1,1 0 0,0 16,6H4A1,1 0 0,0 3,7V17A1,1 0 0,0 4,18H16A1,1 0 0,0 17,17V13.5L21,17.5V6.5L17,10.5Z"/>
+            </svg>
+          </button>
+          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Show Member List">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M16,4C16.88,4 17.67,4.84 17.67,5.84C17.67,6.84 16.88,7.68 16,7.68C15.12,7.68 14.33,6.84 14.33,5.84C14.33,4.84 15.12,4 16,4M16,10.4C18.67,10.4 21.33,11.73 21.33,12.67V14H10.67V12.67C10.67,11.73 13.33,10.4 16,10.4M8,4C8.88,4 9.67,4.84 9.67,5.84C9.67,6.84 8.88,7.68 8,7.68C7.12,7.68 6.33,6.84 6.33,5.84C6.33,4.84 7.12,4 8,4M8,10.4C10.67,10.4 13.33,11.73 13.33,12.67V14H2.67V12.67C2.67,11.73 5.33,10.4 8,10.4Z"/>
+            </svg>
           </button>
         </div>
       </div>
-    </div>
-  </nav>
 
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    <div class="flex justify-between items-center mb-6">
-      <h2 class="text-2xl font-semibold text-gray-800">Chat Rooms</h2>
-      <div class="flex space-x-3">
-        <button id="join-room-button" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded">
-          Join Room
-        </button>
-        <button id="create-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded">
-          Create Room
-        </button>
+      <!-- Messages Area -->
+      <div id="messages-container" class="flex-1 overflow-y-auto discord-scrollbar p-4">
+        <div id="welcome-message" class="flex flex-col items-center justify-center h-full text-center">
+          <div class="w-24 h-24 rounded-full mb-4 flex items-center justify-center" style="background-color: var(--discord-accent);">
+            <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+            </svg>
+          </div>
+          <h2 class="text-2xl font-bold mb-2">Welcome to Chime!</h2>
+          <p style="color: var(--discord-text-secondary);">Select a conversation from the sidebar to start chatting.</p>
+        </div>
       </div>
-    </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="rooms-container">
-      <!-- Room cards will be dynamically added here -->
-      <div class="flex items-center justify-center py-12 col-span-full">
-        <div class="text-gray-500">Loading rooms...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Create Room Modal -->
-  <div id="create-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-medium text-gray-900">Create New Room</h3>
-        <button id="close-create-modal-button" class="text-gray-400 hover:text-gray-500">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <form id="create-room-form" class="space-y-4">
-        <div>
-          <label for="room-name" class="block text-sm font-medium text-gray-700">Room Name</label>
-          <input type="text" id="room-name" name="room-name" required 
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-        </div>
-        
-        <div>
-          <label for="room-description" class="block text-sm font-medium text-gray-700">Description (optional)</label>
-          <textarea id="room-description" name="room-description" rows="3" 
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"></textarea>
-        </div>
-        
-        <div>
-          <label for="max-members" class="block text-sm font-medium text-gray-700">Max Members (1-50)</label>
-          <input type="number" id="max-members" name="max-members" min="1" max="50" value="10" required 
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
-        </div>
-        
-        <div>
-          <button type="submit" 
-            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            Create Room
+      <!-- Message Input -->
+      <div id="message-input-container" class="hidden p-4">
+        <div class="flex items-end space-x-3">
+          <button class="p-2 rounded-full hover:bg-gray-600 transition-colors">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+            </svg>
           </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Join Room Modal -->
-  <div id="join-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-medium text-gray-900">Join Room</h3>
-        <button id="close-join-modal-button" class="text-gray-400 hover:text-gray-500">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <form id="join-room-form" class="space-y-4">
-        <div>
-          <label for="room-code-input" class="block text-sm font-medium text-gray-700">Room Code</label>
-          <input type="text" id="room-code-input" name="room-code" required placeholder="Enter 6-character room code"
-            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-center font-mono text-lg tracking-wider uppercase"
-            maxlength="6" minlength="6">
-        </div>
-        
-        <div class="text-sm text-gray-600">
-          <p>Ask the room creator for the 6-character room code to join their room.</p>
-        </div>
-        
-        <div>
-          <button type="submit" 
-            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
-            Join Room
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Delete Room Confirmation Modal -->
-  <div id="delete-room-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-medium text-red-900">Delete Room</h3>
-        <button id="close-delete-modal-button" class="text-gray-400 hover:text-gray-500">
-          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
-      
-      <div class="mb-6">
-        <div class="flex items-center mb-4">
-          <svg class="h-12 w-12 text-red-500 mr-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <div>
-            <h4 class="text-lg font-medium text-red-900">Are you sure?</h4>
-            <p class="text-sm text-gray-600">This action cannot be undone.</p>
+          
+          <div class="flex-1 relative">
+            <input 
+              type="text" 
+              id="message-input"
+              placeholder="Message @username"
+              class="w-full px-4 py-3 rounded-lg border-0 focus:outline-none"
+              style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
+            >
+            <div class="absolute right-3 top-3 flex space-x-2">
+              <button class="p-1 rounded hover:bg-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M20,6L9,17L4,12L5.4,10.6L9,14.2L18.6,4.6L20,6Z"/>
+                </svg>
+              </button>
+              <button class="p-1 rounded hover:bg-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"/>
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-        
-        <p class="text-gray-700 mb-4">
-          Deleting "<span id="delete-room-name" class="font-semibold"></span>" will permanently remove:
-        </p>
-        
-        <ul class="text-sm text-gray-600 space-y-1 mb-4">
-          <li>• All messages in this room</li>
-          <li>• All room members</li>
-          <li>• Room settings and configuration</li>
-        </ul>
-        
-        <p class="text-sm text-red-600 font-medium">
-          This action is permanent and cannot be reversed.
-        </p>
+      </div>
+    </div>
+
+    <!-- Right Sidebar - User Profile -->
+    <div id="user-profile-sidebar" class="w-80 hidden flex-col" style="background-color: var(--discord-bg-secondary);">
+      <!-- Profile Header -->
+      <div class="relative">
+        <div class="profile-banner h-24"></div>
+        <div class="absolute -bottom-8 left-4">
+          <div class="user-avatar">
+            <img id="profile-avatar" src="https://via.placeholder.com/80/5865f2/ffffff?text=U" alt="User" class="w-20 h-20 rounded-full border-4" style="border-color: var(--discord-bg-secondary);">
+          </div>
+        </div>
       </div>
       
-      <div class="flex space-x-3">
-        <button id="confirm-delete-button" class="flex-1 bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-red-700 transition-colors">
-          Delete Room
+      <!-- Profile Info -->
+      <div class="p-4 pt-12">
+        <h2 id="profile-username" class="text-xl font-bold">Jane Doe</h2>
+        <p id="profile-discriminator" class="text-sm" style="color: var(--discord-text-secondary);">jnedoe</p>
+        
+        <div class="mt-4">
+          <div class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--discord-text-muted);">
+            Member Since
+          </div>
+          <div id="profile-member-since" class="text-sm" style="color: var(--discord-text-secondary);">
+            Apr 4, 2025
+          </div>
+        </div>
+      </div>
+      
+      <!-- Action Buttons -->
+      <div class="px-4 space-y-2">
+        <button class="w-full py-2 px-4 rounded text-sm font-medium transition-colors" style="background-color: var(--discord-accent); color: white;">
+          Send Message
         </button>
-        <button id="cancel-delete-button" class="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-400 transition-colors">
+        <button class="w-full py-2 px-4 rounded text-sm font-medium transition-colors hover:bg-gray-600" style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);">
+          Add Friend
+        </button>
+      </div>
+      
+      <!-- Additional Info -->
+      <div class="p-4 mt-4">
+        <div class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--discord-text-muted);">
+          Note
+        </div>
+        <textarea 
+          placeholder="Click to add a note"
+          class="w-full p-2 text-sm rounded border-0 resize-none focus:outline-none"
+          style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
+          rows="3"
+        ></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create DM Modal -->
+  <div id="create-dm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="rounded-lg shadow-xl max-w-md w-full mx-4 p-6" style="background-color: var(--discord-bg-primary);">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-medium">Select Friends</h3>
+        <button id="close-create-dm-modal" class="text-gray-400 hover:text-gray-300">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      
+      <div class="mb-4">
+        <input 
+          type="text" 
+          id="friend-search"
+          placeholder="Type the username of a friend"
+          class="w-full px-3 py-2 text-sm rounded border-0 focus:outline-none"
+          style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
+        >
+      </div>
+      
+      <div id="friends-list" class="space-y-2 max-h-60 overflow-y-auto discord-scrollbar">
+        <!-- Friends will be populated here -->
+      </div>
+      
+      <div class="flex justify-end space-x-3 mt-6">
+        <button id="cancel-create-dm" class="px-4 py-2 rounded text-sm font-medium transition-colors hover:bg-gray-600" style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);">
           Cancel
+        </button>
+        <button id="create-dm-confirm" class="px-4 py-2 rounded text-sm font-medium transition-colors" style="background-color: var(--discord-accent); color: white;">
+          Create DM
         </button>
       </div>
     </div>
