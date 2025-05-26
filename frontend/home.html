@@ -65,11 +65,11 @@
       background-color: var(--discord-text-muted);
     }
 
-    .dm-item:hover {
+    .dm-item:hover, .server-item:hover {
       background-color: rgba(79, 84, 92, 0.16);
     }
 
-    .dm-item.active {
+    .dm-item.active, .server-item.active {
       background-color: rgba(79, 84, 92, 0.32);
     }
 
@@ -84,23 +84,61 @@
     .profile-banner {
       background: linear-gradient(135deg, var(--discord-accent), var(--discord-orange));
     }
+
+    .server-icon {
+      transition: all 0.2s ease;
+    }
+
+    .server-icon:hover {
+      border-radius: 16px;
+    }
+
+    .server-icon.active {
+      border-radius: 16px;
+    }
+
+    .server-icon.active::before {
+      content: '';
+      position: absolute;
+      left: -4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 4px;
+      height: 40px;
+      background-color: var(--discord-text-primary);
+      border-radius: 0 4px 4px 0;
+    }
   </style>
 </head>
 <body class="h-screen flex overflow-hidden">
-  <!-- Left Sidebar - Server List (Simplified) -->
+  <!-- Left Sidebar - Server List -->
   <div class="w-16 flex flex-col items-center py-3 space-y-2" style="background-color: var(--discord-bg-tertiary);">
-    <!-- Chime Logo -->
-    <div class="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg cursor-pointer transition-all duration-200 hover:rounded-2xl" style="background-color: var(--discord-accent);">
-      C
+    <!-- Direct Messages Icon (Home) -->
+    <div id="dm-server-icon" class="server-icon active relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg cursor-pointer transition-all duration-200" style="background-color: var(--discord-accent);">
+      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+      </svg>
     </div>
     
     <!-- Separator -->
     <div class="w-8 h-0.5 rounded" style="background-color: var(--discord-border);"></div>
     
-    <!-- Direct Messages Icon -->
-    <div class="w-12 h-12 rounded-full flex items-center justify-center text-green-400 cursor-pointer transition-all duration-200 hover:rounded-2xl hover:bg-green-600" style="background-color: var(--discord-bg-primary);">
+    <!-- Server Icons -->
+    <div id="server-list" class="flex flex-col space-y-2">
+      <!-- Server icons will be populated here -->
+    </div>
+
+    <!-- Add Server Button -->
+    <div class="server-icon w-12 h-12 rounded-full flex items-center justify-center text-green-400 cursor-pointer transition-all duration-200 hover:rounded-2xl hover:bg-green-600" style="background-color: var(--discord-bg-primary);" id="add-server-btn">
       <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+        <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+      </svg>
+    </div>
+
+    <!-- Discover Servers Button -->
+    <div class="server-icon w-12 h-12 rounded-full flex items-center justify-center text-green-400 cursor-pointer transition-all duration-200 hover:rounded-2xl hover:bg-green-600" style="background-color: var(--discord-bg-primary);" id="discover-servers-btn">
+      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+        <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8Z"/>
       </svg>
     </div>
   </div>
@@ -157,6 +195,15 @@
         <div id="dm-list" class="space-y-1">
           <!-- DM items will be populated here -->
         </div>
+
+        <!-- Servers/Rooms Section -->
+        <div class="text-xs font-semibold uppercase tracking-wide px-2 py-2 mt-4" style="color: var(--discord-text-muted);">
+          Your Servers
+        </div>
+        
+        <div id="server-rooms-list" class="space-y-1">
+          <!-- Server/Room items will be populated here -->
+        </div>
       </div>
 
       <!-- User Panel -->
@@ -200,19 +247,19 @@
         </div>
         
         <div class="ml-auto flex items-center space-x-4">
-          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Start Voice Call">
+          <button id="voice-call-button" class="p-1 rounded hover:bg-gray-600 transition-colors hidden" title="Start Voice Call">
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5A1,1 0 0,1 21,16.5V20A1,1 0 0,1 20,21A17,17 0 0,1 3,4A1,1 0 0,1 4,3H7.5A1,1 0 0,1 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z"/>
             </svg>
           </button>
-          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Start Video Call">
+          <button id="video-call-button" class="p-1 rounded hover:bg-gray-600 transition-colors hidden" title="Start Video Call">
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M17,10.5V7A1,1 0 0,0 16,6H4A1,1 0 0,0 3,7V17A1,1 0 0,0 4,18H16A1,1 0 0,0 17,17V13.5L21,17.5V6.5L17,10.5Z"/>
             </svg>
           </button>
-          <button class="p-1 rounded hover:bg-gray-600 transition-colors" title="Show Member List">
+          <button id="search-button" class="p-1 rounded hover:bg-gray-600 transition-colors" title="Search">
             <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M16,4C16.88,4 17.67,4.84 17.67,5.84C17.67,6.84 16.88,7.68 16,7.68C15.12,7.68 14.33,6.84 14.33,5.84C14.33,4.84 15.12,4 16,4M16,10.4C18.67,10.4 21.33,11.73 21.33,12.67V14H10.67V12.67C10.67,11.73 13.33,10.4 16,10.4M8,4C8.88,4 9.67,4.84 9.67,5.84C9.67,6.84 8.88,7.68 8,7.68C7.12,7.68 6.33,6.84 6.33,5.84C6.33,4.84 7.12,4 8,4M8,10.4C10.67,10.4 13.33,11.73 13.33,12.67V14H2.67V12.67C2.67,11.73 5.33,10.4 8,10.4Z"/>
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
             </svg>
           </button>
         </div>
@@ -221,18 +268,21 @@
       <!-- Messages Area -->
       <div id="messages-container" class="flex-1 overflow-y-auto discord-scrollbar p-4">
         <div id="welcome-message" class="flex flex-col items-center justify-center h-full text-center">
-          <div class="w-24 h-24 rounded-full mb-4 flex items-center justify-center" style="background-color: var(--discord-accent);">
+          <div class="w-24 h-24 rounded-full mb-6 flex items-center justify-center" style="background-color: var(--discord-accent);">
             <svg class="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
             </svg>
           </div>
           <h2 class="text-2xl font-bold mb-2">Welcome to Chime!</h2>
-          <p style="color: var(--discord-text-secondary);">Select a conversation from the sidebar to start chatting.</p>
+          <p style="color: var(--discord-text-secondary);" class="mb-4">Select a conversation from the sidebar to start chatting, or join a server to connect with communities.</p>
+          <button id="create-room-button" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors">
+            Create a Server
+          </button>
         </div>
       </div>
 
       <!-- Message Input -->
-      <div id="message-input-container" class="hidden p-4">
+      <div id="message-input-area" class="p-4 hidden">
         <div class="flex items-end space-x-3">
           <button class="p-2 rounded-full hover:bg-gray-600 transition-colors">
             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
@@ -244,7 +294,7 @@
             <input 
               type="text" 
               id="message-input"
-              placeholder="Message @username"
+              placeholder="Message"
               class="w-full px-4 py-3 rounded-lg border-0 focus:outline-none"
               style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
             >
@@ -265,92 +315,50 @@
       </div>
     </div>
 
-    <!-- Right Sidebar - User Profile -->
-    <div id="user-profile-sidebar" class="w-80 hidden flex-col" style="background-color: var(--discord-bg-secondary);">
-      <!-- Profile Header -->
-      <div class="relative">
-        <div class="profile-banner h-24"></div>
-        <div class="absolute -bottom-8 left-4">
-          <div class="user-avatar">
-            <img id="profile-avatar" src="https://via.placeholder.com/80/5865f2/ffffff?text=U" alt="User" class="w-20 h-20 rounded-full border-4" style="border-color: var(--discord-bg-secondary);">
-          </div>
-        </div>
-      </div>
-      
-      <!-- Profile Info -->
-      <div class="p-4 pt-12">
-        <h2 id="profile-username" class="text-xl font-bold">Jane Doe</h2>
-        <p id="profile-discriminator" class="text-sm" style="color: var(--discord-text-secondary);">jnedoe</p>
-        
-        <div class="mt-4">
-          <div class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--discord-text-muted);">
-            Member Since
-          </div>
-          <div id="profile-member-since" class="text-sm" style="color: var(--discord-text-secondary);">
-            Apr 4, 2025
-          </div>
-        </div>
-      </div>
-      
-      <!-- Action Buttons -->
-      <div class="px-4 space-y-2">
-        <button class="w-full py-2 px-4 rounded text-sm font-medium transition-colors" style="background-color: var(--discord-accent); color: white;">
-          Send Message
-        </button>
-        <button class="w-full py-2 px-4 rounded text-sm font-medium transition-colors hover:bg-gray-600" style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);">
-          Add Friend
-        </button>
-      </div>
-      
-      <!-- Additional Info -->
-      <div class="p-4 mt-4">
-        <div class="text-xs font-semibold uppercase tracking-wide mb-2" style="color: var(--discord-text-muted);">
-          Note
-        </div>
-        <textarea 
-          placeholder="Click to add a note"
-          class="w-full p-2 text-sm rounded border-0 resize-none focus:outline-none"
-          style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
-          rows="3"
-        ></textarea>
-      </div>
+    <!-- Right Sidebar - User Profile (when viewing DMs) -->
+    <div id="profile-sidebar" class="w-60 hidden flex-col" style="background-color: var(--discord-bg-secondary);">
+      <!-- Profile content will be populated here -->
     </div>
   </div>
 
-  <!-- Create DM Modal -->
-  <div id="create-dm-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
-    <div class="rounded-lg shadow-xl max-w-md w-full mx-4 p-6" style="background-color: var(--discord-bg-primary);">
+  <!-- Create Room Modal -->
+  <div id="create-room-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6" style="background-color: var(--discord-bg-primary);">
       <div class="flex justify-between items-center mb-4">
-        <h3 class="text-xl font-medium">Select Friends</h3>
-        <button id="close-create-dm-modal" class="text-gray-400 hover:text-gray-300">
+        <h3 class="text-xl font-medium" style="color: var(--discord-text-primary);">Create a Server</h3>
+        <button id="close-create-room-modal" class="text-gray-400 hover:text-gray-500">
           <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
       
-      <div class="mb-4">
-        <input 
-          type="text" 
-          id="friend-search"
-          placeholder="Type the username of a friend"
-          class="w-full px-3 py-2 text-sm rounded border-0 focus:outline-none"
-          style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);"
-        >
-      </div>
-      
-      <div id="friends-list" class="space-y-2 max-h-60 overflow-y-auto discord-scrollbar">
-        <!-- Friends will be populated here -->
-      </div>
-      
-      <div class="flex justify-end space-x-3 mt-6">
-        <button id="cancel-create-dm" class="px-4 py-2 rounded text-sm font-medium transition-colors hover:bg-gray-600" style="background-color: var(--discord-bg-tertiary); color: var(--discord-text-primary);">
-          Cancel
-        </button>
-        <button id="create-dm-confirm" class="px-4 py-2 rounded text-sm font-medium transition-colors" style="background-color: var(--discord-accent); color: white;">
-          Create DM
-        </button>
-      </div>
+      <form id="create-room-form">
+        <div class="mb-4">
+          <label for="room-name" class="block text-sm font-medium mb-2" style="color: var(--discord-text-secondary);">Server Name</label>
+          <input type="text" id="room-name" name="name" required 
+            class="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            style="background-color: var(--discord-bg-tertiary); border-color: var(--discord-border); color: var(--discord-text-primary);"
+            placeholder="Enter server name">
+        </div>
+        
+        <div class="mb-6">
+          <label for="room-description" class="block text-sm font-medium mb-2" style="color: var(--discord-text-secondary);">Description (Optional)</label>
+          <textarea id="room-description" name="description" rows="3"
+            class="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            style="background-color: var(--discord-bg-tertiary); border-color: var(--discord-border); color: var(--discord-text-primary);"
+            placeholder="What's your server about?"></textarea>
+        </div>
+        
+        <div class="flex space-x-3">
+          <button type="submit" class="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-indigo-700 transition-colors">
+            Create Server
+          </button>
+          <button type="button" id="cancel-create-room" class="flex-1 bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-700 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 

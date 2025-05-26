@@ -1,12 +1,14 @@
-// Discord-like Home Page JavaScript
+// Discord-style Home JavaScript with Server Integration
 class ChimeHome {
     constructor() {
         this.currentUser = null;
-        this.currentConversation = null;
         this.conversations = new Map();
         this.friends = new Map();
+        this.servers = new Map();
+        this.currentConversation = null;
+        this.currentServer = null;
         this.socket = null;
-        this.selectedFriends = new Set();
+        this.isInDMMode = true;
         
         this.init();
     }
@@ -15,9 +17,10 @@ class ChimeHome {
         await this.checkAuth();
         this.setupEventListeners();
         this.connectWebSocket();
-        await this.loadUserData();
         await this.loadConversations();
         await this.loadFriends();
+        await this.loadServers();
+        this.updateUI();
     }
 
     async checkAuth() {
@@ -33,13 +36,14 @@ class ChimeHome {
                     'Authorization': `Bearer ${token}`
                 }
             });
-
+            
             if (!response.ok) {
                 throw new Error('Token invalid');
             }
-
+            
             const data = await response.json();
             this.currentUser = data.user;
+            this.updateUserInfo();
         } catch (error) {
             console.error('Auth check failed:', error);
             localStorage.removeItem('token');
@@ -48,30 +52,32 @@ class ChimeHome {
     }
 
     setupEventListeners() {
-        // Create DM Modal
-        document.getElementById('create-dm-button').addEventListener('click', () => {
-            this.showCreateDMModal();
+        // Server navigation
+        document.getElementById('dm-server-icon').addEventListener('click', () => {
+            this.switchToDMMode();
         });
 
-        document.getElementById('close-create-dm-modal').addEventListener('click', () => {
-            this.hideCreateDMModal();
+        // Create room/server
+        document.getElementById('create-room-button').addEventListener('click', () => {
+            this.showCreateRoomModal();
         });
 
-        document.getElementById('cancel-create-dm').addEventListener('click', () => {
-            this.hideCreateDMModal();
+        document.getElementById('add-server-btn').addEventListener('click', () => {
+            this.showCreateRoomModal();
         });
 
-        document.getElementById('create-dm-confirm').addEventListener('click', () => {
-            this.createDirectMessage();
+        // Create room modal
+        document.getElementById('close-create-room-modal').addEventListener('click', () => {
+            this.hideCreateRoomModal();
         });
 
-        // Search functionality
-        document.getElementById('dm-search').addEventListener('input', (e) => {
-            this.searchConversations(e.target.value);
+        document.getElementById('cancel-create-room').addEventListener('click', () => {
+            this.hideCreateRoomModal();
         });
 
-        document.getElementById('friend-search').addEventListener('input', (e) => {
-            this.searchFriends(e.target.value);
+        document.getElementById('create-room-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.createRoom();
         });
 
         // Message input
@@ -85,22 +91,18 @@ class ChimeHome {
             });
         }
 
-        // Settings button
-        document.getElementById('settings-button').addEventListener('click', () => {
-            this.showSettings();
+        // Create DM
+        document.getElementById('create-dm-button').addEventListener('click', () => {
+            this.showCreateDMModal();
         });
 
         // Call buttons
-        document.querySelector('[title="Start Voice Call"]').addEventListener('click', () => {
+        document.getElementById('voice-call-button').addEventListener('click', () => {
             this.startVoiceCall();
         });
 
-        document.querySelector('[title="Start Video Call"]').addEventListener('click', () => {
+        document.getElementById('video-call-button').addEventListener('click', () => {
             this.startVideoCall();
-        });
-
-        document.querySelector('[title="Show Member List"]').addEventListener('click', () => {
-            this.toggleUserProfile();
         });
     }
 
@@ -122,7 +124,6 @@ class ChimeHome {
         
         this.socket.onclose = () => {
             console.log('WebSocket disconnected');
-            // Attempt to reconnect after 3 seconds
             setTimeout(() => this.connectWebSocket(), 3000);
         };
         
@@ -136,28 +137,14 @@ class ChimeHome {
             case 'new_message':
                 this.handleNewMessage(data.message);
                 break;
-            case 'user_status_update':
-                this.updateUserStatus(data.userId, data.status);
+            case 'conversation_updated':
+                this.handleConversationUpdated(data.conversation);
                 break;
-            case 'conversation_update':
-                this.updateConversation(data.conversation);
+            case 'friend_request':
+                this.handleFriendRequest(data);
                 break;
             default:
                 console.log('Unknown message type:', data.type);
-        }
-    }
-
-    async loadUserData() {
-        if (this.currentUser) {
-            document.getElementById('current-username').textContent = this.currentUser.username;
-            
-            // Set user avatar
-            const avatar = document.getElementById('current-user-avatar');
-            if (this.currentUser.avatar_url) {
-                avatar.src = this.currentUser.avatar_url;
-            } else {
-                avatar.src = `https://via.placeholder.com/32/5865f2/ffffff?text=${this.currentUser.username.charAt(0).toUpperCase()}`;
-            }
         }
     }
 
@@ -170,8 +157,14 @@ class ChimeHome {
             });
 
             if (response.ok) {
-                const conversations = await response.json();
-                this.displayConversations(conversations);
+                const result = await response.json();
+                const conversations = result.data || [];
+                
+                conversations.forEach(conv => {
+                    this.conversations.set(conv.id, conv);
+                });
+                
+                this.updateConversationsList();
             }
         } catch (error) {
             console.error('Failed to load conversations:', error);
@@ -187,7 +180,9 @@ class ChimeHome {
             });
 
             if (response.ok) {
-                const friends = await response.json();
+                const result = await response.json();
+                const friends = result.data || [];
+                
                 friends.forEach(friend => {
                     this.friends.set(friend.id, friend);
                 });
@@ -197,73 +192,215 @@ class ChimeHome {
         }
     }
 
-    displayConversations(conversations) {
+    async loadServers() {
+        try {
+            const response = await fetch('/api/rooms', {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                const servers = result.data || [];
+                
+                servers.forEach(server => {
+                    this.servers.set(server.id, server);
+                });
+                
+                this.updateServersList();
+                this.updateServerIcons();
+            }
+        } catch (error) {
+            console.error('Failed to load servers:', error);
+        }
+    }
+
+    updateUserInfo() {
+        if (this.currentUser) {
+            document.getElementById('current-username').textContent = this.currentUser.username;
+            
+            const avatar = document.getElementById('current-user-avatar');
+            if (this.currentUser.avatar_url) {
+                avatar.src = this.currentUser.avatar_url;
+            } else {
+                avatar.src = `https://via.placeholder.com/32/5865f2/ffffff?text=${this.currentUser.username.charAt(0).toUpperCase()}`;
+            }
+        }
+    }
+
+    updateConversationsList() {
         const dmList = document.getElementById('dm-list');
         dmList.innerHTML = '';
 
-        conversations.forEach(conversation => {
-            this.conversations.set(conversation.id, conversation);
-            const dmItem = this.createConversationItem(conversation);
-            dmList.appendChild(dmItem);
+        this.conversations.forEach(conversation => {
+            const dmElement = this.createConversationElement(conversation);
+            dmList.appendChild(dmElement);
         });
     }
 
-    createConversationItem(conversation) {
-        const dmItem = document.createElement('div');
-        dmItem.className = 'dm-item flex items-center px-2 py-2 rounded cursor-pointer';
-        dmItem.dataset.conversationId = conversation.id;
+    updateServersList() {
+        const serverList = document.getElementById('server-rooms-list');
+        serverList.innerHTML = '';
 
-        const otherUser = conversation.participants.find(p => p.id !== this.currentUser.id);
-        const isOnline = otherUser?.status === 'online';
+        this.servers.forEach(server => {
+            const serverElement = this.createServerElement(server);
+            serverList.appendChild(serverElement);
+        });
+    }
 
-        dmItem.innerHTML = `
-            <div class="user-avatar ${isOnline ? '' : 'offline'}">
-                <img src="${otherUser?.avatar_url || `https://via.placeholder.com/32/5865f2/ffffff?text=${otherUser?.username?.charAt(0).toUpperCase() || 'U'}`}" 
-                     alt="${otherUser?.username || 'User'}" class="w-8 h-8 rounded-full">
+    updateServerIcons() {
+        const serverIconsList = document.getElementById('server-list');
+        serverIconsList.innerHTML = '';
+
+        this.servers.forEach(server => {
+            const serverIcon = this.createServerIcon(server);
+            serverIconsList.appendChild(serverIcon);
+        });
+    }
+
+    createConversationElement(conversation) {
+        const dmDiv = document.createElement('div');
+        dmDiv.className = 'dm-item flex items-center px-2 py-2 rounded cursor-pointer';
+        dmDiv.dataset.conversationId = conversation.id;
+
+        const otherParticipant = conversation.participants?.find(p => p.id !== this.currentUser.id);
+        const displayName = conversation.type === 'direct' ? 
+            (otherParticipant?.username || 'Unknown User') : 
+            conversation.name;
+
+        const lastMessage = conversation.last_message;
+        const timestamp = lastMessage ? 
+            new Date(lastMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+            '';
+
+        dmDiv.innerHTML = `
+            <div class="user-avatar">
+                <img src="${otherParticipant?.avatar_url || `https://via.placeholder.com/32/5865f2/ffffff?text=${displayName.charAt(0).toUpperCase()}`}" 
+                     alt="${displayName}" class="w-8 h-8 rounded-full">
             </div>
-            <div class="ml-3 flex-1 min-w-0">
-                <div class="text-sm font-medium truncate">${otherUser?.username || 'Unknown User'}</div>
-                ${conversation.last_message ? `
-                    <div class="text-xs truncate" style="color: var(--discord-text-muted);">
-                        ${conversation.last_message.content}
-                    </div>
-                ` : ''}
-            </div>
-            ${conversation.unread_count > 0 ? `
-                <div class="w-5 h-5 rounded-full flex items-center justify-center text-xs text-white" 
-                     style="background-color: var(--discord-red);">
-                    ${conversation.unread_count}
+            <div class="flex-1 min-w-0 ml-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium truncate">${displayName}</span>
+                    ${timestamp ? `<span class="text-xs" style="color: var(--discord-text-muted);">${timestamp}</span>` : ''}
                 </div>
-            ` : ''}
+                ${lastMessage ? `<div class="text-xs truncate" style="color: var(--discord-text-secondary);">${lastMessage.content || 'File attachment'}</div>` : ''}
+            </div>
         `;
 
-        dmItem.addEventListener('click', () => {
+        dmDiv.addEventListener('click', () => {
             this.selectConversation(conversation.id);
         });
 
-        return dmItem;
+        return dmDiv;
+    }
+
+    createServerElement(server) {
+        const serverDiv = document.createElement('div');
+        serverDiv.className = 'server-item flex items-center px-2 py-2 rounded cursor-pointer';
+        serverDiv.dataset.serverId = server.id;
+
+        serverDiv.innerHTML = `
+            <div class="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm mr-3" style="background-color: var(--discord-accent);">
+                ${server.name.charAt(0).toUpperCase()}
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium truncate">${server.name}</div>
+                <div class="text-xs" style="color: var(--discord-text-secondary);">${server.member_count || 0} members</div>
+            </div>
+        `;
+
+        serverDiv.addEventListener('click', () => {
+            this.joinServer(server.id);
+        });
+
+        return serverDiv;
+    }
+
+    createServerIcon(server) {
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'server-icon relative w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg cursor-pointer transition-all duration-200';
+        iconDiv.style.backgroundColor = 'var(--discord-accent)';
+        iconDiv.dataset.serverId = server.id;
+        iconDiv.textContent = server.name.charAt(0).toUpperCase();
+        iconDiv.title = server.name;
+
+        iconDiv.addEventListener('click', () => {
+            this.selectServer(server.id);
+        });
+
+        return iconDiv;
+    }
+
+    switchToDMMode() {
+        this.isInDMMode = true;
+        this.currentServer = null;
+        
+        // Update active states
+        document.querySelectorAll('.server-icon').forEach(icon => {
+            icon.classList.remove('active');
+        });
+        document.getElementById('dm-server-icon').classList.add('active');
+        
+        // Update header
+        document.getElementById('chat-title').textContent = 'Select a conversation';
+        
+        // Hide call buttons
+        document.getElementById('voice-call-button').classList.add('hidden');
+        document.getElementById('video-call-button').classList.add('hidden');
+        
+        // Clear messages
+        this.clearMessages();
+        this.showWelcomeMessage();
+    }
+
+    selectServer(serverId) {
+        this.isInDMMode = false;
+        this.currentServer = this.servers.get(serverId);
+        
+        // Update active states
+        document.querySelectorAll('.server-icon').forEach(icon => {
+            icon.classList.remove('active');
+        });
+        document.querySelector(`[data-server-id="${serverId}"]`).classList.add('active');
+        
+        // Navigate to server chatroom
+        this.joinServer(serverId);
+    }
+
+    joinServer(serverId) {
+        // Navigate to the Discord-style chatroom for this server
+        window.location.href = `chatroom.html?id=${serverId}`;
     }
 
     async selectConversation(conversationId) {
-        // Remove active class from all items
+        this.currentConversation = this.conversations.get(conversationId);
+        
+        if (!this.currentConversation) return;
+
+        // Update active states
         document.querySelectorAll('.dm-item').forEach(item => {
             item.classList.remove('active');
         });
+        document.querySelector(`[data-conversation-id="${conversationId}"]`).classList.add('active');
 
-        // Add active class to selected item
-        const selectedItem = document.querySelector(`[data-conversation-id="${conversationId}"]`);
-        if (selectedItem) {
-            selectedItem.classList.add('active');
-        }
-
-        this.currentConversation = this.conversations.get(conversationId);
+        // Update header
+        const otherParticipant = this.currentConversation.participants?.find(p => p.id !== this.currentUser.id);
+        const displayName = this.currentConversation.type === 'direct' ? 
+            (otherParticipant?.username || 'Unknown User') : 
+            this.currentConversation.name;
         
-        if (this.currentConversation) {
-            await this.loadConversationMessages(conversationId);
-            this.updateChatHeader();
-            this.showMessageInput();
-            this.showUserProfile();
-        }
+        document.getElementById('chat-title').textContent = displayName;
+        
+        // Show call buttons for DMs
+        document.getElementById('voice-call-button').classList.remove('hidden');
+        document.getElementById('video-call-button').classList.remove('hidden');
+        
+        // Show message input
+        document.getElementById('message-input-area').classList.remove('hidden');
+        
+        // Load and display messages
+        await this.loadConversationMessages(conversationId);
     }
 
     async loadConversationMessages(conversationId) {
@@ -275,7 +412,8 @@ class ChimeHome {
             });
 
             if (response.ok) {
-                const messages = await response.json();
+                const result = await response.json();
+                const messages = result.data || [];
                 this.displayMessages(messages);
             }
         } catch (error) {
@@ -287,19 +425,19 @@ class ChimeHome {
         const messagesContainer = document.getElementById('messages-container');
         const welcomeMessage = document.getElementById('welcome-message');
         
-        if (welcomeMessage) {
-            welcomeMessage.style.display = 'none';
-        }
-
-        messagesContainer.innerHTML = '';
+        // Hide welcome message
+        welcomeMessage.style.display = 'none';
+        
+        // Clear existing messages
+        const existingMessages = messagesContainer.querySelectorAll('.message-bubble');
+        existingMessages.forEach(msg => msg.remove());
 
         messages.forEach(message => {
             const messageElement = this.createMessageElement(message);
             messagesContainer.appendChild(messageElement);
         });
 
-        // Scroll to bottom
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        this.scrollToBottom();
     }
 
     createMessageElement(message) {
@@ -307,8 +445,7 @@ class ChimeHome {
         messageDiv.className = 'message-bubble flex items-start space-x-3 p-2 rounded hover:bg-gray-800 hover:bg-opacity-30';
 
         const isCurrentUser = message.user_id === this.currentUser.id;
-        const user = isCurrentUser ? this.currentUser : 
-                    this.currentConversation.participants.find(p => p.id === message.user_id);
+        const user = isCurrentUser ? this.currentUser : { username: message.username || 'Unknown User' };
 
         const timestamp = new Date(message.created_at).toLocaleTimeString([], { 
             hour: '2-digit', 
@@ -317,12 +454,12 @@ class ChimeHome {
 
         messageDiv.innerHTML = `
             <div class="user-avatar">
-                <img src="${user?.avatar_url || `https://via.placeholder.com/40/5865f2/ffffff?text=${user?.username?.charAt(0).toUpperCase() || 'U'}`}" 
-                     alt="${user?.username || 'User'}" class="w-10 h-10 rounded-full">
+                <img src="${user.avatar_url || `https://via.placeholder.com/40/5865f2/ffffff?text=${user.username.charAt(0).toUpperCase()}`}" 
+                     alt="${user.username}" class="w-10 h-10 rounded-full">
             </div>
             <div class="flex-1 min-w-0">
                 <div class="flex items-baseline space-x-2">
-                    <span class="text-sm font-semibold">${user?.username || 'Unknown User'}</span>
+                    <span class="text-sm font-semibold">${user.username}</span>
                     <span class="text-xs" style="color: var(--discord-text-muted);">${timestamp}</span>
                 </div>
                 <div class="text-sm mt-1" style="color: var(--discord-text-primary);">
@@ -330,73 +467,18 @@ class ChimeHome {
                 </div>
             </div>
         `;
-
+        
         return messageDiv;
     }
 
     formatMessageContent(content) {
-        // Basic message formatting (you can extend this)
+        if (!content) return '';
+        
         return content
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            .replace(/`(.*?)`/g, '<code style="background-color: var(--discord-bg-tertiary); padding: 2px 4px; border-radius: 3px;">$1</code>');
-    }
-
-    updateChatHeader() {
-        if (this.currentConversation) {
-            const otherUser = this.currentConversation.participants.find(p => p.id !== this.currentUser.id);
-            const chatTitle = document.getElementById('chat-title');
-            chatTitle.textContent = otherUser?.username || 'Unknown User';
-        }
-    }
-
-    showMessageInput() {
-        const messageInputContainer = document.getElementById('message-input-container');
-        messageInputContainer.classList.remove('hidden');
-        
-        const messageInput = document.getElementById('message-input');
-        if (this.currentConversation) {
-            const otherUser = this.currentConversation.participants.find(p => p.id !== this.currentUser.id);
-            messageInput.placeholder = `Message @${otherUser?.username || 'user'}`;
-        }
-    }
-
-    showUserProfile() {
-        if (this.currentConversation) {
-            const otherUser = this.currentConversation.participants.find(p => p.id !== this.currentUser.id);
-            const profileSidebar = document.getElementById('user-profile-sidebar');
-            
-            // Update profile information
-            document.getElementById('profile-username').textContent = otherUser?.username || 'Unknown User';
-            document.getElementById('profile-discriminator').textContent = otherUser?.email || 'user@example.com';
-            
-            const profileAvatar = document.getElementById('profile-avatar');
-            profileAvatar.src = otherUser?.avatar_url || 
-                `https://via.placeholder.com/80/5865f2/ffffff?text=${otherUser?.username?.charAt(0).toUpperCase() || 'U'}`;
-            
-            // Show member since date
-            if (otherUser?.created_at) {
-                const memberSince = new Date(otherUser.created_at).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-                document.getElementById('profile-member-since').textContent = memberSince;
-            }
-            
-            profileSidebar.classList.remove('hidden');
-            profileSidebar.classList.add('flex');
-        }
-    }
-
-    toggleUserProfile() {
-        const profileSidebar = document.getElementById('user-profile-sidebar');
-        if (profileSidebar.classList.contains('hidden')) {
-            this.showUserProfile();
-        } else {
-            profileSidebar.classList.add('hidden');
-            profileSidebar.classList.remove('flex');
-        }
+            .replace(/`(.*?)`/g, '<code style="background-color: var(--discord-bg-tertiary); padding: 2px 4px; border-radius: 3px;">$1</code>')
+            .replace(/~~(.*?)~~/g, '<del>$1</del>');
     }
 
     async sendMessage() {
@@ -427,200 +509,123 @@ class ChimeHome {
         }
     }
 
-    handleNewMessage(message) {
-        if (this.currentConversation && message.conversation_id === this.currentConversation.id) {
-            const messagesContainer = document.getElementById('messages-container');
-            const messageElement = this.createMessageElement(message);
-            messagesContainer.appendChild(messageElement);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
-        }
-        
-        // Update conversation list
-        this.updateConversationLastMessage(message);
-    }
-
-    updateConversationLastMessage(message) {
-        const conversation = this.conversations.get(message.conversation_id);
-        if (conversation) {
-            conversation.last_message = message;
-            if (message.user_id !== this.currentUser.id) {
-                conversation.unread_count = (conversation.unread_count || 0) + 1;
-            }
-            
-            // Update the conversation item in the list
-            const conversationItem = document.querySelector(`[data-conversation-id="${message.conversation_id}"]`);
-            if (conversationItem) {
-                // Re-create the conversation item with updated data
-                const newItem = this.createConversationItem(conversation);
-                conversationItem.replaceWith(newItem);
-            }
-        }
-    }
-
-    showCreateDMModal() {
-        document.getElementById('create-dm-modal').classList.remove('hidden');
-        this.populateFriendsList();
-    }
-
-    hideCreateDMModal() {
-        document.getElementById('create-dm-modal').classList.add('hidden');
-        this.selectedFriends.clear();
-        document.getElementById('friend-search').value = '';
-    }
-
-    populateFriendsList() {
-        const friendsList = document.getElementById('friends-list');
-        friendsList.innerHTML = '';
-
-        this.friends.forEach(friend => {
-            const friendItem = this.createFriendItem(friend);
-            friendsList.appendChild(friendItem);
-        });
-    }
-
-    createFriendItem(friend) {
-        const friendItem = document.createElement('div');
-        friendItem.className = 'flex items-center p-2 rounded hover:bg-gray-600 cursor-pointer';
-        friendItem.dataset.friendId = friend.id;
-
-        friendItem.innerHTML = `
-            <div class="user-avatar ${friend.status === 'online' ? '' : 'offline'}">
-                <img src="${friend.avatar_url || `https://via.placeholder.com/32/5865f2/ffffff?text=${friend.username.charAt(0).toUpperCase()}`}" 
-                     alt="${friend.username}" class="w-8 h-8 rounded-full">
-            </div>
-            <div class="ml-3 flex-1">
-                <div class="text-sm font-medium">${friend.username}</div>
-                <div class="text-xs" style="color: var(--discord-text-muted);">${friend.status || 'offline'}</div>
-            </div>
-            <div class="friend-checkbox w-5 h-5 border-2 rounded" style="border-color: var(--discord-border);"></div>
-        `;
-
-        friendItem.addEventListener('click', () => {
-            this.toggleFriendSelection(friend.id, friendItem);
-        });
-
-        return friendItem;
-    }
-
-    toggleFriendSelection(friendId, friendItem) {
-        const checkbox = friendItem.querySelector('.friend-checkbox');
-        
-        if (this.selectedFriends.has(friendId)) {
-            this.selectedFriends.delete(friendId);
-            checkbox.style.backgroundColor = 'transparent';
-            checkbox.innerHTML = '';
-        } else {
-            this.selectedFriends.add(friendId);
-            checkbox.style.backgroundColor = 'var(--discord-accent)';
-            checkbox.innerHTML = '<svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
-        }
-    }
-
-    async createDirectMessage() {
-        if (this.selectedFriends.size === 0) {
-            alert('Please select at least one friend.');
-            return;
-        }
+    async createRoom() {
+        const formData = new FormData(document.getElementById('create-room-form'));
+        const roomData = {
+            name: formData.get('name'),
+            description: formData.get('description') || null
+        };
 
         try {
-            const response = await fetch('/api/conversations', {
+            const response = await fetch('/api/rooms', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${localStorage.getItem('token')}`
                 },
-                body: JSON.stringify({
-                    participants: Array.from(this.selectedFriends),
-                    type: this.selectedFriends.size === 1 ? 'direct' : 'group'
-                })
+                body: JSON.stringify(roomData)
             });
 
             if (response.ok) {
-                const conversation = await response.json();
-                this.conversations.set(conversation.id, conversation);
+                const result = await response.json();
+                const newRoom = result.data;
                 
-                // Add to conversation list
-                const dmList = document.getElementById('dm-list');
-                const conversationItem = this.createConversationItem(conversation);
-                dmList.insertBefore(conversationItem, dmList.firstChild);
+                this.servers.set(newRoom.id, newRoom);
+                this.updateServersList();
+                this.updateServerIcons();
+                this.hideCreateRoomModal();
                 
-                // Select the new conversation
-                this.selectConversation(conversation.id);
-                this.hideCreateDMModal();
+                // Navigate to the new server
+                this.joinServer(newRoom.id);
             } else {
-                throw new Error('Failed to create conversation');
+                const error = await response.json();
+                alert(error.message || 'Failed to create server');
             }
         } catch (error) {
-            console.error('Failed to create DM:', error);
-            alert('Failed to create direct message. Please try again.');
+            console.error('Failed to create room:', error);
+            alert('Failed to create server. Please try again.');
         }
     }
 
-    searchConversations(query) {
-        const dmItems = document.querySelectorAll('.dm-item');
-        dmItems.forEach(item => {
-            const username = item.querySelector('.text-sm.font-medium').textContent.toLowerCase();
-            if (username.includes(query.toLowerCase())) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
+    showCreateRoomModal() {
+        document.getElementById('create-room-modal').classList.remove('hidden');
+        document.getElementById('room-name').focus();
     }
 
-    searchFriends(query) {
-        const friendItems = document.querySelectorAll('#friends-list > div');
-        friendItems.forEach(item => {
-            const username = item.querySelector('.text-sm.font-medium').textContent.toLowerCase();
-            if (username.includes(query.toLowerCase())) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
+    hideCreateRoomModal() {
+        document.getElementById('create-room-modal').classList.add('hidden');
+        document.getElementById('create-room-form').reset();
+    }
+
+    showCreateDMModal() {
+        // Implement create DM modal functionality
+        console.log('Create DM modal - to be implemented');
     }
 
     startVoiceCall() {
         if (this.currentConversation) {
-            // Redirect to call interface or open call modal
-            console.log('Starting voice call...');
-            // You can integrate with your existing call system here
+            console.log('Starting voice call for conversation:', this.currentConversation.id);
+            // Implement voice call functionality
         }
     }
 
     startVideoCall() {
         if (this.currentConversation) {
-            // Redirect to call interface or open call modal
-            console.log('Starting video call...');
-            // You can integrate with your existing call system here
+            console.log('Starting video call for conversation:', this.currentConversation.id);
+            // Implement video call functionality
         }
     }
 
-    showSettings() {
-        // Open settings modal or redirect to settings page
-        console.log('Opening settings...');
+    clearMessages() {
+        const messagesContainer = document.getElementById('messages-container');
+        const existingMessages = messagesContainer.querySelectorAll('.message-bubble');
+        existingMessages.forEach(msg => msg.remove());
     }
 
-    updateUserStatus(userId, status) {
-        // Update user status in conversations and friends
-        this.friends.forEach(friend => {
-            if (friend.id === userId) {
-                friend.status = status;
-            }
-        });
+    showWelcomeMessage() {
+        document.getElementById('welcome-message').style.display = 'flex';
+        document.getElementById('message-input-area').classList.add('hidden');
+    }
 
-        // Update avatar status indicators
-        document.querySelectorAll(`[data-user-id="${userId}"] .user-avatar`).forEach(avatar => {
-            if (status === 'online') {
-                avatar.classList.remove('offline');
-            } else {
-                avatar.classList.add('offline');
-            }
-        });
+    scrollToBottom() {
+        const messagesContainer = document.getElementById('messages-container');
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    updateUI() {
+        // Initial UI state
+        this.showWelcomeMessage();
+    }
+
+    handleNewMessage(message) {
+        if (this.currentConversation && message.conversation_id === this.currentConversation.id) {
+            const messageElement = this.createMessageElement(message);
+            const messagesContainer = document.getElementById('messages-container');
+            messagesContainer.appendChild(messageElement);
+            this.scrollToBottom();
+        }
+        
+        // Update conversation in sidebar
+        this.updateConversationInList(message.conversation_id);
+    }
+
+    handleConversationUpdated(conversation) {
+        this.conversations.set(conversation.id, conversation);
+        this.updateConversationsList();
+    }
+
+    updateConversationInList(conversationId) {
+        // Reload conversations to get updated last message
+        this.loadConversations();
+    }
+
+    handleFriendRequest(data) {
+        // Handle friend request notifications
+        console.log('Friend request received:', data);
     }
 }
 
-// Initialize the application when DOM is loaded
+// Initialize the Discord-style home interface
 document.addEventListener('DOMContentLoaded', () => {
     new ChimeHome();
 }); 
