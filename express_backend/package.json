@@ -13,6 +13,8 @@
   "description": "Backend for Chime chat application",
   "dependencies": {
     "@supabase/supabase-js": "^2.38.4",
+    "agora-access-token": "^2.0.4",
+    "agora-rtc-sdk-ng": "^4.20.0",
     "bcryptjs": "^2.4.3",
     "clamscan": "^2.4.0",
     "cors": "^2.8.5",
@@ -23,7 +25,9 @@
     "mammoth": "^1.9.0",
     "multer": "^2.0.0",
     "pdf-thumbnail": "^1.0.6",
-    "sharp": "^0.34.2"
+    "sharp": "^0.34.2",
+    "socket.io": "^4.7.5",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

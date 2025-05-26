@@ -7,6 +7,7 @@ const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const chatRoomRoutes = require('./routes/chatRoomRoutes');
 const messageRoutes = require('./routes/messageRoutes');
+const callRoutes = require('./routes/callRoutes');
 
 // Initialize Express app
 const app = express();
@@ -52,6 +53,7 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', chatRoomRoutes);
 app.use('/api', messageRoutes);
+app.use('/api', callRoutes);
 
 // Test route
 app.get('/api/health', (req, res) => {
@@ -59,7 +61,9 @@ app.get('/api/health', (req, res) => {
     message: 'Server is running',
     maxPayload: '50mb',
     uploadTimeout: '30 minutes',
-    chunkedUploadSupported: true
+    chunkedUploadSupported: true,
+    callsSupported: true,
+    agoraConfigured: !!(process.env.AGORA_APP_ID && process.env.AGORA_APP_CERTIFICATE)
   });
 });
 
